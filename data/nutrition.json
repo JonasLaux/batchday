@@ -1,0 +1,1122 @@
+[
+  {
+    "id": "C133000",
+    "name": "Hafer Flocken",
+    "kcal": 348,
+    "protein": 13.22,
+    "carbs": 53.3,
+    "fat": 6.65
+  },
+  {
+    "id": "C352000",
+    "name": "Reis poliert, roh",
+    "kcal": 351,
+    "protein": 7.931,
+    "carbs": 77.1,
+    "fat": 0.62
+  },
+  {
+    "id": "C351000",
+    "name": "Reis unpoliert, roh",
+    "kcal": 360,
+    "protein": 8.384,
+    "carbs": 73.43,
+    "fat": 2.7
+  },
+  {
+    "id": "C359000",
+    "name": "Reis parboiled, poliert, roh",
+    "kcal": 333,
+    "protein": 8.125,
+    "carbs": 72.1,
+    "fat": 1.03
+  },
+  {
+    "id": "C119100",
+    "name": "Bulgur (Hartweizen) roh",
+    "kcal": 353,
+    "protein": 12.4,
+    "carbs": 68,
+    "fat": 2
+  },
+  {
+    "id": "C119200",
+    "name": "Couscous (Hartweizen) roh",
+    "kcal": 350,
+    "protein": 11.692,
+    "carbs": 68.92,
+    "fat": 1.7
+  },
+  {
+    "id": "C118000",
+    "name": "Quinoa weiß, roh",
+    "kcal": 361,
+    "protein": 12.56,
+    "carbs": 59.65,
+    "fat": 6.29
+  },
+  {
+    "id": "C322000",
+    "name": "Buchweizen roh",
+    "kcal": 339,
+    "protein": 13.05,
+    "carbs": 61.86,
+    "fat": 3.13
+  },
+  {
+    "id": "C214100",
+    "name": "Weizen Mehl, Type 405",
+    "kcal": 348,
+    "protein": 10.46,
+    "carbs": 71.77,
+    "fat": 0.93
+  },
+  {
+    "id": "C214200",
+    "name": "Weizen Mehl, Type 550",
+    "kcal": 349,
+    "protein": 11.94,
+    "carbs": 70.55,
+    "fat": 1.09
+  },
+  {
+    "id": "C234000",
+    "name": "Dinkel Mehl, Type 630",
+    "kcal": 352,
+    "protein": 13.17,
+    "carbs": 68.35,
+    "fat": 1.38
+  },
+  {
+    "id": "C660000",
+    "name": "Haferdrink ungesüßt",
+    "kcal": 29,
+    "protein": 0.74,
+    "carbs": 4,
+    "fat": 1.01
+  },
+  {
+    "id": "B101000",
+    "name": "Vollkornbrot",
+    "kcal": 210,
+    "protein": 7.16,
+    "carbs": 38,
+    "fat": 1.01
+  },
+  {
+    "id": "B111200",
+    "name": "Weizenvollkorntoastbrot",
+    "kcal": 249,
+    "protein": 8.8,
+    "carbs": 41,
+    "fat": 3.67
+  },
+  {
+    "id": "E111100",
+    "name": "Hühnerei roh",
+    "kcal": 135,
+    "protein": 13.175,
+    "carbs": 0.34,
+    "fat": 9
+  },
+  {
+    "id": "E401000",
+    "name": "Teigwaren eifrei, roh",
+    "kcal": 346,
+    "protein": 12.4,
+    "carbs": 68.833,
+    "fat": 1.6
+  },
+  {
+    "id": "E401032",
+    "name": "Teigwaren eifrei, gekocht",
+    "kcal": 146,
+    "protein": 5.4,
+    "carbs": 28.68,
+    "fat": 0.702
+  },
+  {
+    "id": "E612000",
+    "name": "Teigwaren eifrei, glutenfrei, roh",
+    "kcal": 343,
+    "protein": 8.416,
+    "carbs": 68.7,
+    "fat": 2.22
+  },
+  {
+    "id": "F301100",
+    "name": "Erdbeere roh",
+    "kcal": 38,
+    "protein": 0.82,
+    "carbs": 5.917,
+    "fat": 0.4
+  },
+  {
+    "id": "F302100",
+    "name": "Himbeere roh",
+    "kcal": 43,
+    "protein": 1,
+    "carbs": 5.2,
+    "fat": 0.3
+  },
+  {
+    "id": "F304100",
+    "name": "Heidelbeere roh",
+    "kcal": 61,
+    "protein": 0.5,
+    "carbs": 9.7,
+    "fat": 0.6
+  },
+  {
+    "id": "F110100",
+    "name": "Apfel roh",
+    "kcal": 58,
+    "protein": 0.424,
+    "carbs": 11.7,
+    "fat": 0.5
+  },
+  {
+    "id": "F502100",
+    "name": "Avocado roh",
+    "kcal": 132,
+    "protein": 1.37,
+    "carbs": 1.37,
+    "fat": 12.5
+  },
+  {
+    "id": "F503100",
+    "name": "Banane roh",
+    "kcal": 79,
+    "protein": 1.319,
+    "carbs": 15.89,
+    "fat": 0.4
+  },
+  {
+    "id": "F514100",
+    "name": "Kiwi roh",
+    "kcal": 61,
+    "protein": 0.9,
+    "carbs": 10.1,
+    "fat": 0.5
+  },
+  {
+    "id": "F516100",
+    "name": "Mango roh",
+    "kcal": 60,
+    "protein": 0.7,
+    "carbs": 12,
+    "fat": 0.45
+  },
+  {
+    "id": "F130100",
+    "name": "Birne roh",
+    "kcal": 58,
+    "protein": 0.3,
+    "carbs": 13.16,
+    "fat": 0.29
+  },
+  {
+    "id": "F603100",
+    "name": "Orange roh",
+    "kcal": 49,
+    "protein": 1,
+    "carbs": 8.85,
+    "fat": 0.2
+  },
+  {
+    "id": "F601100",
+    "name": "Zitrone roh",
+    "kcal": 40,
+    "protein": 0.7,
+    "carbs": 3.16,
+    "fat": 0.4
+  },
+  {
+    "id": "F602100",
+    "name": "Limette roh",
+    "kcal": 28,
+    "protein": 0.5,
+    "carbs": 1.9,
+    "fat": 0.2
+  },
+  {
+    "id": "F601600",
+    "name": "Zitronensaft",
+    "kcal": 30,
+    "protein": 0.63,
+    "carbs": 1.7,
+    "fat": 0.3
+  },
+  {
+    "id": "F602600",
+    "name": "Limettensaft",
+    "kcal": 24,
+    "protein": 0.45,
+    "carbs": 1.52,
+    "fat": 0.2
+  },
+  {
+    "id": "G311100",
+    "name": "Blumenkohl roh",
+    "kcal": 35,
+    "protein": 2.424,
+    "carbs": 5.33,
+    "fat": 0.28
+  },
+  {
+    "id": "G312100",
+    "name": "Broccoli roh",
+    "kcal": 35,
+    "protein": 3.622,
+    "carbs": 2.3,
+    "fat": 0.5967
+  },
+  {
+    "id": "G312200",
+    "name": "Broccoli tiefgefroren",
+    "kcal": 31,
+    "protein": 2.2,
+    "carbs": 2.4,
+    "fat": 0.663
+  },
+  {
+    "id": "G211100",
+    "name": "Spinat roh",
+    "kcal": 18,
+    "protein": 2.067,
+    "carbs": 0.93,
+    "fat": 0.3
+  },
+  {
+    "id": "G211200",
+    "name": "Spinat tiefgefroren",
+    "kcal": 20,
+    "protein": 2.313,
+    "carbs": 0.98,
+    "fat": 0.316
+  },
+  {
+    "id": "G480100",
+    "name": "Speisezwiebel roh",
+    "kcal": 34,
+    "protein": 1.156,
+    "carbs": 6.01,
+    "fat": 0.15
+  },
+  {
+    "id": "G482100",
+    "name": "Frühlingszwiebel/Lauchzwiebel, roh",
+    "kcal": 27,
+    "protein": 1.9,
+    "carbs": 3,
+    "fat": 0.19
+  },
+  {
+    "id": "G490100",
+    "name": "Knoblauch roh",
+    "kcal": 97,
+    "protein": 6.05,
+    "carbs": 3,
+    "fat": 0.42
+  },
+  {
+    "id": "G470100",
+    "name": "Porree/Lauch, roh",
+    "kcal": 36,
+    "protein": 2.14,
+    "carbs": 5,
+    "fat": 0.25
+  },
+  {
+    "id": "G541100",
+    "name": "Gemüsepaprika grün, roh",
+    "kcal": 38,
+    "protein": 1.08,
+    "carbs": 6.88,
+    "fat": 0.24
+  },
+  {
+    "id": "G542100",
+    "name": "Gemüsepaprika gelb, roh",
+    "kcal": 28,
+    "protein": 0.8,
+    "carbs": 4.422,
+    "fat": 0.2
+  },
+  {
+    "id": "G543100",
+    "name": "Gemüsepaprika rot, roh",
+    "kcal": 36,
+    "protein": 1.025,
+    "carbs": 6.19,
+    "fat": 0.2
+  },
+  {
+    "id": "G554100",
+    "name": "Pfefferschote rot, roh",
+    "kcal": 40,
+    "protein": 1.87,
+    "carbs": 6.19,
+    "fat": 0.44
+  },
+  {
+    "id": "G561100",
+    "name": "Tomate roh",
+    "kcal": 22,
+    "protein": 0.95,
+    "carbs": 3.25,
+    "fat": 0.11
+  },
+  {
+    "id": "G568900",
+    "name": "Tomate geschält, Konserve",
+    "kcal": 24,
+    "protein": 1.2,
+    "carbs": 3.25,
+    "fat": 0.3
+  },
+  {
+    "id": "G560900",
+    "name": "Tomate Konserve",
+    "kcal": 19,
+    "protein": 1.15,
+    "carbs": 2.536,
+    "fat": 0.2
+  },
+  {
+    "id": "G570902",
+    "name": "Zuckermais Konserve, abgetropft",
+    "kcal": 79,
+    "protein": 2.71,
+    "carbs": 10.84,
+    "fat": 1.94
+  },
+  {
+    "id": "G570200",
+    "name": "Zuckermais tiefgefroren",
+    "kcal": 73,
+    "protein": 3.3,
+    "carbs": 10.5,
+    "fat": 1.367
+  },
+  {
+    "id": "G581000",
+    "name": "Kürbis Hokkaido (C. maxima) roh",
+    "kcal": 30,
+    "protein": 1.4,
+    "carbs": 5.298,
+    "fat": 0.2
+  },
+  {
+    "id": "G582100",
+    "name": "Zucchini roh",
+    "kcal": 22,
+    "protein": 1.3,
+    "carbs": 3,
+    "fat": 0.287
+  },
+  {
+    "id": "G510100",
+    "name": "Aubergine roh",
+    "kcal": 19,
+    "protein": 0.57,
+    "carbs": 3.02,
+    "fat": 0.18
+  },
+  {
+    "id": "G520100",
+    "name": "Gurke roh",
+    "kcal": 16,
+    "protein": 1.062,
+    "carbs": 1.97,
+    "fat": 0.2
+  },
+  {
+    "id": "G620100",
+    "name": "Karotte/Möhre, roh",
+    "kcal": 40,
+    "protein": 0.84,
+    "carbs": 6.471,
+    "fat": 0.4
+  },
+  {
+    "id": "G660100",
+    "name": "Knollensellerie roh",
+    "kcal": 30,
+    "protein": 1.55,
+    "carbs": 2.77,
+    "fat": 0.33
+  },
+  {
+    "id": "G130100",
+    "name": "Rucola roh",
+    "kcal": 21,
+    "protein": 3.6,
+    "carbs": 0,
+    "fat": 0.4
+  },
+  {
+    "id": "G104100",
+    "name": "Feldsalat/Rapunzel, roh",
+    "kcal": 18,
+    "protein": 1.9,
+    "carbs": 0.808,
+    "fat": 0.36
+  },
+  {
+    "id": "G105100",
+    "name": "Kopfsalat roh",
+    "kcal": 18,
+    "protein": 1.5,
+    "carbs": 1.7,
+    "fat": 0.22
+  },
+  {
+    "id": "G341100",
+    "name": "Rotkohl roh",
+    "kcal": 28,
+    "protein": 1.563,
+    "carbs": 3.732,
+    "fat": 0.18
+  },
+  {
+    "id": "G342100",
+    "name": "Weißkohl roh",
+    "kcal": 32,
+    "protein": 1.382,
+    "carbs": 4.54,
+    "fat": 0.19
+  },
+  {
+    "id": "G332100",
+    "name": "Rosenkohl roh",
+    "kcal": 40,
+    "protein": 4.45,
+    "carbs": 2.26,
+    "fat": 0.34
+  },
+  {
+    "id": "G760200",
+    "name": "Erbse grün, tiefgefroren",
+    "kcal": 77,
+    "protein": 4.9,
+    "carbs": 10,
+    "fat": 0.7
+  },
+  {
+    "id": "G770400",
+    "name": "Kichererbse reif",
+    "kcal": 317,
+    "protein": 18.583,
+    "carbs": 39.6,
+    "fat": 5.915
+  },
+  {
+    "id": "G770432",
+    "name": "Kichererbse reif, gekocht",
+    "kcal": 151,
+    "protein": 8.4,
+    "carbs": 17.4,
+    "fat": 3
+  },
+  {
+    "id": "G061000",
+    "name": "Basilikum roh",
+    "kcal": 23,
+    "protein": 3.15,
+    "carbs": 0.31,
+    "fat": 0.64
+  },
+  {
+    "id": "G250100",
+    "name": "Petersilienblatt roh",
+    "kcal": 33,
+    "protein": 4.088,
+    "carbs": 1.31,
+    "fat": 0.36
+  },
+  {
+    "id": "H480100",
+    "name": "Chia-Samen",
+    "kcal": 479,
+    "protein": 22.11,
+    "carbs": 3.66,
+    "fat": 32.79
+  },
+  {
+    "id": "H410100",
+    "name": "Leinsamen",
+    "kcal": 470,
+    "protein": 22.27,
+    "carbs": 1.7,
+    "fat": 36.5
+  },
+  {
+    "id": "H420100",
+    "name": "Sesam",
+    "kcal": 565,
+    "protein": 20.896,
+    "carbs": 1.42,
+    "fat": 50.4
+  },
+  {
+    "id": "H430100",
+    "name": "Sonnenblumenkern",
+    "kcal": 564,
+    "protein": 26.11,
+    "carbs": 4.8,
+    "fat": 47.6
+  },
+  {
+    "id": "H310100",
+    "name": "Kürbiskern",
+    "kcal": 588,
+    "protein": 35.49,
+    "carbs": 2.81,
+    "fat": 46.34
+  },
+  {
+    "id": "H210100",
+    "name": "Mandel süß",
+    "kcal": 544,
+    "protein": 22.333,
+    "carbs": 3.87,
+    "fat": 46.6
+  },
+  {
+    "id": "H120100",
+    "name": "Walnuss",
+    "kcal": 721,
+    "protein": 16.07,
+    "carbs": 3,
+    "fat": 70.6
+  },
+  {
+    "id": "H130100",
+    "name": "Haselnuss",
+    "kcal": 667,
+    "protein": 16.25,
+    "carbs": 4.2,
+    "fat": 63.3
+  },
+  {
+    "id": "H170100",
+    "name": "Cashewkern",
+    "kcal": 618,
+    "protein": 21.01,
+    "carbs": 26,
+    "fat": 47.1
+  },
+  {
+    "id": "H110800",
+    "name": "Erdnussmus",
+    "kcal": 620,
+    "protein": 29,
+    "carbs": 9.9,
+    "fat": 49.7
+  },
+  {
+    "id": "H110600",
+    "name": "Erdnuss geröstet",
+    "kcal": 620,
+    "protein": 29,
+    "carbs": 9.9,
+    "fat": 49.7
+  },
+  {
+    "id": "H154000",
+    "name": "Kokosmilch/Kokosnussmilch",
+    "kcal": 227,
+    "protein": 2.774,
+    "carbs": 2.1,
+    "fat": 21.9
+  },
+  {
+    "id": "H861000",
+    "name": "Tofu",
+    "kcal": 115,
+    "protein": 15.51,
+    "carbs": 0,
+    "fat": 5.63
+  },
+  {
+    "id": "H765000",
+    "name": "Sojaschnetzel/Sojagranulat, texturiert, trocken",
+    "kcal": 351,
+    "protein": 50.2,
+    "carbs": 13.46,
+    "fat": 6.74
+  },
+  {
+    "id": "H725100",
+    "name": "Linse reif",
+    "kcal": 323,
+    "protein": 23.357,
+    "carbs": 44.8,
+    "fat": 1.7
+  },
+  {
+    "id": "H730000",
+    "name": "Linse rot reif",
+    "kcal": 334,
+    "protein": 25.6,
+    "carbs": 48.8,
+    "fat": 2.17
+  },
+  {
+    "id": "H740902",
+    "name": "Gartenbohne reif, Konserve, abgetropft",
+    "kcal": 130,
+    "protein": 9.0383,
+    "carbs": 17.72,
+    "fat": 0.597
+  },
+  {
+    "id": "H730902",
+    "name": "Linse reif, Konserve, abgetropft",
+    "kcal": 119,
+    "protein": 9.036,
+    "carbs": 15.4,
+    "fat": 0.7
+  },
+  {
+    "id": "H720902",
+    "name": "Kichererbse reif, Konserve, abgetropft",
+    "kcal": 136,
+    "protein": 7.5,
+    "carbs": 15.5,
+    "fat": 2.7
+  },
+  {
+    "id": "H742902",
+    "name": "Kidneybohne reif, Konserve, abgetropft",
+    "kcal": 128,
+    "protein": 8.5,
+    "carbs": 15.1,
+    "fat": 1
+  },
+  {
+    "id": "K110100",
+    "name": "Kartoffel geschält, roh",
+    "kcal": 83,
+    "protein": 1.94,
+    "carbs": 17.9,
+    "fat": 0.1
+  },
+  {
+    "id": "K120100",
+    "name": "Kartoffel ungeschält, roh",
+    "kcal": 86,
+    "protein": 2.05,
+    "carbs": 18.46,
+    "fat": 0.1
+  },
+  {
+    "id": "K701100",
+    "name": "Champignon roh",
+    "kcal": 28,
+    "protein": 3.66,
+    "carbs": 2.9,
+    "fat": 0.274
+  },
+  {
+    "id": "M713100",
+    "name": "Speisequark Magerstufe, Magerquark < 10 % Fett i. Tr.",
+    "kcal": 66,
+    "protein": 11.85,
+    "carbs": 3.68,
+    "fat": 0.18
+  },
+  {
+    "id": "M713300",
+    "name": "Speisequark Halbfettstufe, 20 % Fett i. Tr.",
+    "kcal": 110,
+    "protein": 12.245,
+    "carbs": 3.04,
+    "fat": 5.1
+  },
+  {
+    "id": "M710100",
+    "name": "Skyr, Frischkäse < 10 % Fett i. Tr.",
+    "kcal": 64,
+    "protein": 10.35,
+    "carbs": 3.19,
+    "fat": 0.84
+  },
+  {
+    "id": "M711100",
+    "name": "Körniger Frischkäse < 10 % Fett i. Tr.",
+    "kcal": 73,
+    "protein": 11.8,
+    "carbs": 3,
+    "fat": 1.2
+  },
+  {
+    "id": "M711300",
+    "name": "Körniger Frischkäse mind. 20 % Fett i. Tr.",
+    "kcal": 109,
+    "protein": 13.3,
+    "carbs": 3.64,
+    "fat": 4.3
+  },
+  {
+    "id": "M141300",
+    "name": "Joghurt mild, mind. 3,5 % Fett",
+    "kcal": 67,
+    "protein": 3.98,
+    "carbs": 4.13,
+    "fat": 3.46
+  },
+  {
+    "id": "M141200",
+    "name": "Joghurt fettarm, mind. 1,5 % bis max. 1,8 % Fett",
+    "kcal": 62,
+    "protein": 5.035,
+    "carbs": 6.046,
+    "fat": 1.6
+  },
+  {
+    "id": "M111200",
+    "name": "Milch fettarm, frisch, 1,5 % Fett, pasteurisiert",
+    "kcal": 44,
+    "protein": 3.49,
+    "carbs": 3.86,
+    "fat": 1.54
+  },
+  {
+    "id": "M111300",
+    "name": "Vollmilch frisch, 3,5 % Fett, pasteurisiert",
+    "kcal": 62,
+    "protein": 3.55,
+    "carbs": 4.03,
+    "fat": 3.49
+  },
+  {
+    "id": "M032100",
+    "name": "Mozzarella mind. 45 % Fett i. Tr.",
+    "kcal": 259,
+    "protein": 17.12,
+    "carbs": 0,
+    "fat": 20.99
+  },
+  {
+    "id": "M0A1000",
+    "name": "Mozzarella mind. 20 % Fett i. Tr.",
+    "kcal": 158,
+    "protein": 19.912,
+    "carbs": 0,
+    "fat": 8.5
+  },
+  {
+    "id": "M012200",
+    "name": "Feta mind. 45 % Fett i. Tr.",
+    "kcal": 284,
+    "protein": 15.68,
+    "carbs": 0,
+    "fat": 24.09
+  },
+  {
+    "id": "M304600",
+    "name": "Emmentaler mind. 45 % Fett i. Tr.",
+    "kcal": 374,
+    "protein": 27.5,
+    "carbs": 0,
+    "fat": 29.15
+  },
+  {
+    "id": "M306400",
+    "name": "Parmesan mind. 30 % Fett i. Tr.",
+    "kcal": 391,
+    "protein": 35.6,
+    "carbs": 0.056,
+    "fat": 27.43
+  },
+  {
+    "id": "M710800",
+    "name": "Frischkäsezubereitung Natur, mind. 60 % Fett i. Tr.",
+    "kcal": 252,
+    "protein": 6.6,
+    "carbs": 3.69,
+    "fat": 23.25
+  },
+  {
+    "id": "M150000",
+    "name": "Buttermilch",
+    "kcal": 39,
+    "protein": 3.23,
+    "carbs": 4.73,
+    "fat": 0.56
+  },
+  {
+    "id": "N110000",
+    "name": "Trinkwasser",
+    "kcal": 0,
+    "protein": 0,
+    "carbs": 0,
+    "fat": 0
+  },
+  {
+    "id": "Q120000",
+    "name": "Olivenöl",
+    "kcal": 899,
+    "protein": 0,
+    "carbs": 0,
+    "fat": 99.9
+  },
+  {
+    "id": "Q180000",
+    "name": "Rapsöl/Rüböl",
+    "kcal": 900,
+    "protein": 0,
+    "carbs": 0,
+    "fat": 100
+  },
+  {
+    "id": "Q160000",
+    "name": "Leinöl",
+    "kcal": 900,
+    "protein": 0,
+    "carbs": 0,
+    "fat": 100
+  },
+  {
+    "id": "Q230000",
+    "name": "Sesamöl",
+    "kcal": 900,
+    "protein": 0,
+    "carbs": 0,
+    "fat": 100
+  },
+  {
+    "id": "Q250000",
+    "name": "Kürbiskernöl",
+    "kcal": 900,
+    "protein": 0,
+    "carbs": 0,
+    "fat": 100
+  },
+  {
+    "id": "Q611000",
+    "name": "Butter mild gesäuert",
+    "kcal": 747,
+    "protein": 1.188,
+    "carbs": 0.571,
+    "fat": 82.2
+  },
+  {
+    "id": "R111000",
+    "name": "Speisesalz/Siedesalz/Tafelsalz",
+    "kcal": 0,
+    "protein": 0,
+    "carbs": 0,
+    "fat": 0
+  },
+  {
+    "id": "R114000",
+    "name": "Speisesalz jodiert/Jodsalz",
+    "kcal": 0,
+    "protein": 0,
+    "carbs": 0,
+    "fat": 0
+  },
+  {
+    "id": "R231000",
+    "name": "Basilikum getrocknet",
+    "kcal": 211,
+    "protein": 23,
+    "carbs": 1.71,
+    "fat": 4.07
+  },
+  {
+    "id": "R258100",
+    "name": "Pfeffer schwarz, getrocknet",
+    "kcal": 304,
+    "protein": 10.92,
+    "carbs": 46.07,
+    "fat": 2.77
+  },
+  {
+    "id": "R211200",
+    "name": "Ingwer/Ingwerwurzel, roh",
+    "kcal": 48,
+    "protein": 1.92,
+    "carbs": 6.8,
+    "fat": 0.75
+  },
+  {
+    "id": "R123100",
+    "name": "Apfelessig",
+    "kcal": 18,
+    "protein": 0.2,
+    "carbs": 0.147,
+    "fat": 0
+  },
+  {
+    "id": "R121000",
+    "name": "Weinessig",
+    "kcal": 25,
+    "protein": 0,
+    "carbs": 0,
+    "fat": 0
+  },
+  {
+    "id": "R125000",
+    "name": "Balsamicoessig",
+    "kcal": 95,
+    "protein": 0,
+    "carbs": 20.04,
+    "fat": null
+  },
+  {
+    "id": "R132000",
+    "name": "Senf mittelscharf",
+    "kcal": 111,
+    "protein": 5.51,
+    "carbs": 2.94,
+    "fat": 6.96
+  },
+  {
+    "id": "R143000",
+    "name": "Sojasauce/Sojasoße",
+    "kcal": 66,
+    "protein": 6.3,
+    "carbs": 5.47,
+    "fat": 0.88
+  },
+  {
+    "id": "R161200",
+    "name": "Tomaten passiert/Tomatenpüree",
+    "kcal": 29,
+    "protein": 1.18,
+    "carbs": 3.94,
+    "fat": 0.1
+  },
+  {
+    "id": "R160000",
+    "name": "Tomatenmark",
+    "kcal": 81,
+    "protein": 3.4,
+    "carbs": 13.2,
+    "fat": 0.2
+  },
+  {
+    "id": "R146100",
+    "name": "Sambal Oelek, Würzpaste",
+    "kcal": 55,
+    "protein": 1.45,
+    "carbs": 9.41,
+    "fat": 0.4
+  },
+  {
+    "id": "S120000",
+    "name": "Honig",
+    "kcal": 305,
+    "protein": 0.4,
+    "carbs": 74.091,
+    "fat": 0
+  },
+  {
+    "id": "S111000",
+    "name": "Zucker weiß (Raffinadezucker/Weißzucker)",
+    "kcal": 400,
+    "protein": 0,
+    "carbs": 100,
+    "fat": 0
+  },
+  {
+    "id": "S151100",
+    "name": "Ahornsirup",
+    "kcal": 240,
+    "protein": 0.04,
+    "carbs": 59.9,
+    "fat": 0.06
+  },
+  {
+    "id": "S711000",
+    "name": "Kakaopulver schwach entölt",
+    "kcal": 365,
+    "protein": 22.61,
+    "carbs": 10.9,
+    "fat": 19.8
+  },
+  {
+    "id": "T410100",
+    "name": "Lachs roh",
+    "kcal": 180,
+    "protein": 19.9,
+    "carbs": 0,
+    "fat": 11.2
+  },
+  {
+    "id": "T753100",
+    "name": "Garnele/Granat/Krabbe, roh",
+    "kcal": 87,
+    "protein": 18.6,
+    "carbs": 0,
+    "fat": 1.44
+  },
+  {
+    "id": "T121902",
+    "name": "Thunfisch im eigenen Saft, Konserve, abgetropft",
+    "kcal": 95,
+    "protein": 22.87,
+    "carbs": 0,
+    "fat": 0.41
+  },
+  {
+    "id": "T121702",
+    "name": "Thunfisch in Öl, Konserve, abgetropft",
+    "kcal": 207,
+    "protein": 28.262,
+    "carbs": 0,
+    "fat": 10.45
+  },
+  {
+    "id": "U010100",
+    "name": "Rind Hackfleisch, roh",
+    "kcal": 224,
+    "protein": 19.102,
+    "carbs": 0,
+    "fat": 16.39
+  },
+  {
+    "id": "U611100",
+    "name": "Schwein Filet/Lende, roh",
+    "kcal": 118,
+    "protein": 22.79,
+    "carbs": 0,
+    "fat": 2.97
+  },
+  {
+    "id": "U541100",
+    "name": "Schwein Schnitzel (Oberschale) roh",
+    "kcal": 106,
+    "protein": 22.2,
+    "carbs": 0,
+    "fat": 1.9
+  },
+  {
+    "id": "V416100",
+    "name": "Hähnchen Brustfilet, roh",
+    "kcal": 109,
+    "protein": 23.25,
+    "carbs": 0,
+    "fat": 1.81
+  },
+  {
+    "id": "V486100",
+    "name": "Pute Brust, ohne Haut, roh",
+    "kcal": 105,
+    "protein": 24.1,
+    "carbs": 0,
+    "fat": 0.99
+  },
+  {
+    "id": "V413000",
+    "name": "Hähnchen Fleisch, ohne Haut, roh",
+    "kcal": 131,
+    "protein": 20.2,
+    "carbs": 0,
+    "fat": 5.6
+  }
+]
