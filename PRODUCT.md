@@ -28,6 +28,10 @@ Known product gaps: matches are AI picks from a 10-product shortlist and can mis
 
 ## Verification
 
+Review follow-up on 2026-10-26 fixes long ingredient IDs being dropped from pantry/avoid preferences, concurrent requests timing out during a valid token refresh, and a new-account login reusing an interrupted registration. Four new regression tests cover these cases; two unused helpers and their tests were removed. All 84 tests, typecheck and production build pass. Auth tests use synthetic credentials; live OAuth and successful fresh AI generation were not rerun.
+
+Copy now retains the chosen product when an ingredient's first row is checked and recalculates packs from remaining rows. Six Chrome assertions on the existing dev server covered split rows, a manual product choice, two packs dropping to one, only spoon quantities remaining, the disclosure closed, and all/none checked. Synthetic loader/product responses and captured clipboard writes kept personal data and the system clipboard untouched. The private proof is under `artifacts/copy-regression.local/` and may be absent in another checkout.
+
 Week redo browser proof on 2026-10-26 used an isolated production copy and disposable Chrome profiles. Assertions covered fresh setup defaults, all four steps, reload/resume, cancel restoring choices and shopping checks, regeneration preserving existing inputs, injected menu failures and identical retries, new-choice submission, saved-recipe recovery, and existing single-setting edits. A separate 390px keyboard check verified Start over, Cancel, visible focus and no horizontal overflow. Production screenshots of Week in both themes and restart Store passed at 1440, 768 and 390px with zero failures; all screenshots were reviewed. All 82 existing tests, typecheck and build passed. A real one-dinner regeneration returned a menu, then failed reading the ChatGPT recipe response; no recipe was saved, so successful live generation remains unverified in this change. Proof scripts and reports are private under `artifacts/redo.local/` and may be absent in another checkout.
 
 The simplified flow adds five domain tests for calculated preference thresholds, distinct pantry oils, one recipe per scheduled meal and validated schedule/draft restoration, and extends preference restoration coverage. All 82 tests, typecheck and the production build pass. The design inspector reports zero failures across seven screens at 1440, 768 and 390 px; all screenshots were reviewed. Two non-blocking warnings concern natural space below a short form and closed native select options. No sample data is shipped.
@@ -36,7 +40,7 @@ Production browser proof on 2026-10-26 used Chrome Incognito and an isolated cat
 
 Schedule drafts persist separately from the active schedule in the existing browser key. On a menu failure, **Try again** and **Use saved recipes** allow recovery; saved recipes still obey preferences and can leave unsupported slots empty.
 
-Domain tests cover validation, restored filters, meal assignment, slot filling, alternatives, daily totals, menu validation, quantity aggregation, feedback provenance, nutrient calculation, shortlists, model-answer validation, saved matches, pack lines and product choice. Run `pnpm test`, `pnpm typecheck` and `pnpm build` for changes to those contracts.
+Domain tests cover validation, restored filters, meal assignment, slot filling, menu validation, quantity aggregation, feedback provenance, nutrient calculation, shortlists, model-answer validation, saved matches, pack lines and product choice. Run `pnpm test`, `pnpm typecheck` and `pnpm build` for changes to those contracts.
 
 Local browser checks have exercised generation, recipe revision, changes to only one occurrence of a planned recipe, recalculated macros, combined shopping quantities and persistence after reload. The nutrient importer has reproduced the included snapshot from its pinned source.
 

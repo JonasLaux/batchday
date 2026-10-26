@@ -129,6 +129,34 @@ test('concurrent expired sessions refresh once and atomically persist replacemen
   assert.equal((await stat(join(directory, 'chatgpt.json'))).mode & 0o777, 0o600)
 }))
 
+test('concurrent callers wait through slow token refresh and identity verification', (context) => isolated(async (directory) => {
+  await save(directory, { ...freshCredentials(), expires_at: 0 })
+  let now = Date.now()
+  context.mock.method(Date, 'now', () => now)
+  let refreshes = 0
+  let verifications = 0
+  globalThis.fetch = async (input) => {
+    if (String(input).endsWith('/.well-known/jwks.json')) {
+      verifications++
+      now += 4_000
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      return Response.json({ keys: [publicJWK] })
+    }
+    refreshes++
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    now += 19_000
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    return Response.json(grant({ id_token: await identity('refresh') }))
+  }
+  try {
+    const results = await Promise.allSettled([getChatGPTAccessToken(), getChatGPTAccessToken(), getChatGPTAccessToken()])
+    assert.deepEqual(results, Array.from({ length: 3 }, () => ({ status: 'fulfilled', value: 'new-access' })))
+    assert.equal(refreshes, 1)
+    assert.equal(verifications, 1)
+    assert.equal((await readSaved(directory)).refresh_token, 'new-refresh')
+  } finally { context.mock.restoreAll() }
+}))
+
 test('upstream refresh errors preserve the previous session without leaking response bodies', () => isolated(async (directory) => {
   const saved = { ...freshCredentials(), expires_at: 0 }
   await save(directory, saved)
@@ -208,6 +236,16 @@ test('a failed first exchange retains the issued client ID for the next sign-in 
   } })
   await assert.rejects(readFile(join(directory, 'pending-registration.json')), { code: 'ENOENT' })
   assert.equal(await getChatGPTAccessToken(), 'new-access')
+}))
+
+test('new-account login starts a fresh registration after a failed first exchange', () => isolated(async (directory) => {
+  await assert.rejects(login({ tokenStatus: 400 }), /authorization failed/)
+  await login({ newAccount: true, identityOptions: { subject: 'different-user' }, onAuthorization: (url) => {
+    assert.equal(url.searchParams.get('client_id'), 'dynamic_agent_client')
+    assert.equal(url.searchParams.get('agent_name_hint'), 'Batchday')
+  } })
+  assert.equal((await readSaved(directory)).subject, 'different-user')
+  await assert.rejects(readFile(join(directory, 'pending-registration.json')), { code: 'ENOENT' })
 }))
 
 test('a contending process never deletes another process lock, including stale locks', (context) => isolated(async (directory) => {

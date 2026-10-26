@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildShoppingList, chooseProduct, dailyNutrition, fillOpenSlot, filterRecipes, foodQueries, formatAmount, generateWeeklyPlan, ingredientId, isLowerBound, listAnswer, pantryStaples, planItemKey, productLine, readFilters, readSchedule, replacePlannedRecipe, savedProducts, selectionSize, shortlist, slotAlternatives, toGeneratedRecipe, toMenu, validateRecipes, withFoodPicks } from './recipes.ts'
+import { buildShoppingList, chooseProduct, fillOpenSlot, filterRecipes, foodQueries, formatAmount, generateWeeklyPlan, ingredientId, ingredientIds, isLowerBound, listAnswer, pantryStaples, planItemKey, productLine, readFilters, readSchedule, replacePlannedRecipe, savedProducts, selectionSize, shortlist, toGeneratedRecipe, toMenu, validateRecipes, withFoodPicks } from './recipes.ts'
 import type { Filters, Ingredient, Recipe, ShoppingItem, StoreProduct, WeeklySchedule } from './types.ts'
 
 const ingredient = (overrides: Partial<Ingredient> = {}): Ingredient => ({
@@ -330,6 +330,29 @@ test('restored schedules keep unique valid days and meals and preserve empty dra
   assert.deepEqual(readSchedule({ days: [99], meals: ['snack'] }, fallback), { days: [], meals: [], portions: 2 })
 })
 
+test('long generated ingredient IDs survive preference restore and still exclude recipes and pantry shopping', () => {
+  const name = 'Sojajoghurt natur, ungesüßt, calciumangereichert'
+  const result = toGeneratedRecipe({ ...generated, ingredients: [{ ...generated.ingredients[0], name }] }, generatedSource, [])
+  const id = result.ingredients[0].id
+  assert.equal(id, 'sojajoghurtnaturungesuesstcalciumangereichert')
+  const saved = JSON.parse(JSON.stringify({ pantry: [id], filters: { excludedIngredients: [id] } }))
+  const pantry = ingredientIds(saved.pantry)
+  const restoredFilters = readFilters(saved.filters)
+  assert.deepEqual(pantry, [id])
+  assert.deepEqual(restoredFilters.excludedIngredients, [id])
+  assert.deepEqual(filterRecipes([result], restoredFilters, []), [])
+  assert.deepEqual(buildShoppingList([result], [{ recipeId: result.id, portions: 2 }], pantry), [])
+})
+
+test('ingredient preferences reject malformed values and bound selection count without truncating valid IDs', () => {
+  const longId = ingredientId('ä'.repeat(129))
+  assert.equal(longId.length, 258)
+  assert.deepEqual(ingredientIds([longId, longId, '', 'with spaces', 'UPPER', 7]), [longId])
+  const ids = Array.from({ length: 61 }, (_, index) => `ingredient${index}`)
+  assert.deepEqual(ingredientIds(ids), ids.slice(0, 60))
+  assert.deepEqual(ingredientIds(null), [])
+})
+
 test('missing schedule fields inherit the fallback without sharing arrays and invalid portions fall back', () => {
   const fallback: WeeklySchedule = { days: [1, 4], meals: ['breakfast', 'dinner'], portions: 3 }
   for (const value of [undefined, null, false, [], 'schedule', {}]) {
@@ -358,30 +381,6 @@ test('live filling uses the preferred open day, then the first open day, and nev
   assert.deepEqual(full.map((item) => item.day), [1, 0, 3])
   assert.equal(fillOpenSlot(full, schedule, 'd', 'dinner'), full)
   assert.equal(fillOpenSlot(tuesday, schedule, 'a', 'breakfast'), tuesday)
-})
-
-test('alternatives are unplanned compatible recipes with known servings, newest first', () => {
-  const at = (id: string, createdAt: string, overrides: Partial<Recipe> = {}) =>
-    recipe({ id, source: { model: 'm', request: 'r', createdAt }, ...overrides })
-  const candidates = [at('old', '2026-10-01'), at('planned', '2026-10-24'), at('new', '2026-10-23'), at('mid', '2026-10-10'),
-    at('breakfast', '2026-10-24', { mealTypes: ['breakfast'] }), at('unknown-yield', '2026-10-24', { servings: null })]
-  const plan = [{ recipeId: 'planned', portions: 2, day: 0 as const, meal: 'dinner' as const }]
-  assert.deepEqual(slotAlternatives(candidates, plan, 'dinner').map((item) => item.id), ['new', 'mid', 'old'])
-  assert.deepEqual(slotAlternatives(candidates, plan, 'dinner', 1).map((item) => item.id), ['new'])
-  assert.deepEqual(slotAlternatives(candidates, plan, 'breakfast').map((item) => item.id), ['breakfast'])
-})
-
-test('daily macros add one portion of each planned meal and stay unknown when one meal lacks nutrition', () => {
-  const nutrition = { kcal: 500, protein: 30, carbs: 50, fat: 20 }
-  const recipes = [recipe({ id: 'a', nutrition }), recipe({ id: 'b', nutrition: { ...nutrition, kcal: 300 } }), recipe({ id: 'c' })]
-  const totals = dailyNutrition(recipes, [
-    { recipeId: 'b', portions: 4, day: 1, meal: 'dinner' }, { recipeId: 'a', portions: 2, day: 0, meal: 'breakfast' },
-    { recipeId: 'b', portions: 2, day: 0, meal: 'dinner' }, { recipeId: 'c', portions: 2, day: 1, meal: 'lunch' }, { recipeId: 'a', portions: 2 },
-  ])
-  assert.deepEqual(totals, [
-    { day: 0, meals: 2, nutrition: { kcal: 800, protein: 60, carbs: 100, fat: 40 } },
-    { day: 1, meals: 2, nutrition: null },
-  ])
 })
 
 test('menu output keeps well-formed dishes for requested meals and rejects an empty menu', () => {

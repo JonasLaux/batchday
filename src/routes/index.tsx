@@ -22,6 +22,7 @@ import {
   pantryStaples,
   pickRules,
   planItemKey,
+  productLine,
   readFilters,
   readSchedule,
   tagOptions,
@@ -919,6 +920,15 @@ function Home() {
     });
   };
   const copyList = async () => {
+    const remainingProducts = new Map(
+      ingredientRows.flatMap((rows) => {
+        const remainingRows = rows.filter((item) => !checked.includes(item.id));
+        const selected = showProducts ? productLines.get(rows[0].id) : undefined;
+        return selected && remainingRows.length
+          ? [[remainingRows[0].id, productLine(remainingRows, selected.product)] as const]
+          : [];
+      }),
+    );
     const text = groups
       .map(
         (group) =>
@@ -927,7 +937,7 @@ function Home() {
               (item) => item.category === group && !checked.includes(item.id),
             )
             .map((item) => {
-              const line = showProducts ? productLines.get(item.id) : undefined;
+              const line = remainingProducts.get(item.id);
               return `[ ] ${formatAmount(item.amount, item.unit)} ${item.name}${item.unresolved ? " (check quantity)" : ""}${item.note ? ` — ${item.note}` : ""}${line ? `\n   ${productText(line)}${line.check ? ", check amount" : ""}` : ""}`;
             })
             .join("\n")}`,

@@ -108,7 +108,7 @@ export function filterRecipes(recipes: Recipe[], filters: Filters, pantry: strin
 }
 
 export const ingredientIds = (value: unknown): string[] => Array.isArray(value)
-  ? [...new Set(value.filter((id): id is string => typeof id === 'string' && /^[a-z0-9]{1,40}$/.test(id)))].slice(0, 60)
+  ? [...new Set(value.filter((id): id is string => typeof id === 'string' && /^[a-z0-9]+$/.test(id)))].slice(0, 60)
   : []
 const oneOf = <T>(options: readonly T[], value: unknown, fallback: T): T => options.includes(value as T) ? value as T : fallback
 
@@ -188,31 +188,6 @@ export function fillOpenSlot(plan: PlanItem[], schedule: WeeklySchedule, recipeI
   const open = [...schedule.days].sort((a, b) => a - b).filter((day) => !plan.some((item) => item.day === day && item.meal === meal))
   const day = preferredDay !== undefined && open.includes(preferredDay) ? preferredDay : open[0]
   return day === undefined ? plan : [...plan, { recipeId, portions: schedule.portions, day, meal }]
-}
-
-// Newest compatible recipes that are not planned yet, so a fresh selection is offered first.
-export function slotAlternatives(candidates: Recipe[], plan: PlanItem[], meal: MealType, count = 3): Recipe[] {
-  const planned = new Set(plan.map((item) => item.recipeId))
-  return candidates
-    .filter((recipe) => !planned.has(recipe.id) && positive(recipe.servings) && (recipe.mealTypes ?? ['lunch', 'dinner']).includes(meal))
-    .sort((a, b) => b.source.createdAt.localeCompare(a.source.createdAt))
-    .slice(0, count)
-}
-
-// One portion of every planned meal per day; any meal without nutrition makes that day's total unknown.
-export function dailyNutrition(recipes: Recipe[], plan: PlanItem[]): { day: Weekday; meals: number; nutrition: Recipe['nutrition'] }[] {
-  const byId = new Map(recipes.map((recipe) => [recipe.id, recipe]))
-  const days = new Map<Weekday, { day: Weekday; meals: number; nutrition: Recipe['nutrition'] }>()
-  for (const item of plan) {
-    if (item.day === undefined) continue
-    const total = days.get(item.day) ?? { day: item.day, meals: 0, nutrition: { kcal: 0, protein: 0, carbs: 0, fat: 0 } }
-    const nutrition = byId.get(item.recipeId)?.nutrition
-    total.meals++
-    total.nutrition = total.nutrition && nutrition ? { kcal: total.nutrition.kcal + nutrition.kcal, protein: total.nutrition.protein + nutrition.protein,
-      carbs: total.nutrition.carbs + nutrition.carbs, fat: total.nutrition.fat + nutrition.fat } : null
-    days.set(item.day, total)
-  }
-  return [...days.values()].sort((a, b) => a.day - b.day)
 }
 
 function normalizedAmount(ingredient: Ingredient): { amount: number | null; unit: string } {

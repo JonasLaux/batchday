@@ -65,7 +65,8 @@ async function readCredentials(): Promise<Credentials | null> {
 async function withAuthLock<T>(operation: () => Promise<T>): Promise<T> {
   await prepareDirectory()
   const lock = join(authDir(), 'session.lock')
-  const deadline = Date.now() + 15_000
+  // Cover refresh plus JWKS verification (25s) and both logout attempts (40.25s).
+  const deadline = Date.now() + 45_000
   while (true) {
     try {
       await mkdir(lock, { mode: 0o700 })
@@ -177,7 +178,7 @@ export async function loginChatGPT(onReady: (authorizationUrl: string, callbackU
     return { saved: await readCredentials(), host: await hostId(), pendingClient }
   })
   const selected = newAccount ? null : saved
-  const registrationClient = selected?.client_id || pendingClient
+  const registrationClient = newAccount ? undefined : selected?.client_id || pendingClient
   const state = randomBytes(32).toString('base64url')
   const nonce = randomBytes(32).toString('base64url')
   const verifier = randomBytes(64).toString('base64url')
