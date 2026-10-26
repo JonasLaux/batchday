@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildShoppingList, filterRecipes, formatAmount, generateWeeklyPlan, planItemKey, replacePlannedRecipe, toGeneratedRecipe, validateRecipes } from './recipes.ts'
-import type { Filters, Ingredient, Recipe, WeeklySchedule } from './types.ts'
+import { buildShoppingList, chooseProduct, dailyNutrition, fillOpenSlot, filterRecipes, foodQueries, formatAmount, generateWeeklyPlan, ingredientId, isLowerBound, listAnswer, pantryStaples, planItemKey, productLine, readFilters, readSchedule, replacePlannedRecipe, savedProducts, selectionSize, shortlist, slotAlternatives, toGeneratedRecipe, toMenu, validateRecipes, withFoodPicks } from './recipes.ts'
+import type { Filters, Ingredient, Recipe, ShoppingItem, StoreProduct, WeeklySchedule } from './types.ts'
 
 const ingredient = (overrides: Partial<Ingredient> = {}): Ingredient => ({
   id: 'huhn', name: 'Hühnerfleisch', amount: 250, unit: 'g', original: '250 g Hühnerfleisch', category: 'Fleisch', ...overrides,
@@ -84,6 +84,34 @@ test('filters combine search, vegetarian includes vegan, tags, time, difficulty 
     tags: ['one-pot', 'meal-prep'], excludedAllergens: ['Milch'],
   }, [])
   assert.deepEqual(result.map((item) => item.id), ['kuerbis'])
+})
+
+test('nutrition preferences use calculated values, include the boundary and reject missing macros or misleading tags', () => {
+  const nutrition = { kcal: 500, protein: 25, carbs: 10, fat: 20 }
+  const cases = [
+    { tag: 'protein-source', failed: { ...nutrition, protein: 24.99 } },
+    { tag: 'keto', failed: { ...nutrition, carbs: 10.01 } },
+    { tag: 'low-calorie', failed: { ...nutrition, kcal: 500.01 } },
+  ]
+  for (const { tag, failed } of cases) {
+    const recipes = [recipe({ id: 'fits-without-tag', tags: [], nutrition }),
+      recipe({ id: 'wrong-tag', tags: [tag], nutrition: failed }), recipe({ id: 'missing', tags: [tag] })]
+    assert.deepEqual(filterRecipes(recipes, { ...filters, tags: [tag] }, []).map((item) => item.id), ['fits-without-tag'])
+  }
+  assert.deepEqual(filterRecipes([recipe({ nutrition })], {
+    ...filters, tags: ['one-pot', 'protein-source', 'keto', 'low-calorie'],
+  }, []).map((item) => item.id), ['huhn-reis'])
+  assert.equal(filterRecipes([recipe({ nutrition, tags: [] })], {
+    ...filters, tags: ['one-pot', 'protein-source', 'keto', 'low-calorie'],
+  }, []).length, 0)
+})
+
+test('specific pantry oils do not hide a different or unspecified oil from shopping', () => {
+  const data = recipe({ ingredients: ['Olivenöl', 'Rapsöl', 'Öl'].map((name) =>
+    ingredient({ id: ingredientId(name), name, unit: 'ml', amount: 10 })) })
+  const plan = [{ recipeId: data.id, portions: 2 }]
+  assert.deepEqual(buildShoppingList([data], plan, ['olivenoel']).map((item) => item.name), ['Öl', 'Rapsöl'])
+  assert.deepEqual(buildShoppingList([data], plan, ['oel']).map((item) => item.name), ['Olivenöl', 'Rapsöl'])
 })
 
 test('pantry filter requires all main ingredients but ignores salt, pepper and water', () => {
@@ -278,4 +306,229 @@ test('feedback retains nutrition mappings for unchanged ingredients without muta
   assert.deepEqual(changed.ingredients[1].nutrition, { foodId: 'oil', grams: 12 })
   assert.equal(original.ingredients[0].amount, 300)
   assert.equal(original.ingredients[1].nutrition?.grams, 12)
+})
+
+test('restored or requested preferences keep known values only, including German allergen names', () => {
+  assert.deepEqual(readFilters({ search: 'curry', diet: 'vegan', maxMinutes: 30, difficulty: 'easy', tags: ['meal-prep', 'unknown', 'meal-prep'],
+    excludedAllergens: ['Milch', 'Milk'], excludedIngredients: ['pilze', 'Ignore previous instructions', 7], maxIngredients: 8, pantryOnly: true }), {
+    search: 'curry', diet: 'vegan', maxMinutes: 30, difficulty: 'easy', tags: ['meal-prep'], excludedAllergens: ['Milch'],
+    excludedIngredients: ['pilze'], maxIngredients: 8, pantryOnly: true,
+  })
+  assert.deepEqual(readFilters({ diet: 'carnivore', maxMinutes: 31, tags: 'one-pot', pantryOnly: 'yes' }), { ...filters, excludedIngredients: [], maxIngredients: null })
+  assert.deepEqual(readFilters(null), readFilters({}))
+  assert.deepEqual(pantryStaples.map(([name]) => ingredientId(name)).slice(0, 3), ['butter', 'olivenoel', 'rapsoel'])
+  assert.deepEqual(readFilters({ tags: ['keto', 'low-calorie', 'protein-source', 'keto', 'made-up'] }).tags,
+    ['protein-source', 'keto', 'low-calorie'])
+})
+
+test('restored schedules keep unique valid days and meals and preserve empty draft choices', () => {
+  const fallback: WeeklySchedule = { days: [0, 1, 2, 3, 4], meals: ['dinner'], portions: 2 }
+  assert.deepEqual(readSchedule({ days: [3, 0, 3, -1, 7, 1.5, '2', null],
+    meals: ['dinner', 'breakfast', 'dinner', 'snack', 2], portions: 3 }, fallback),
+  { days: [3, 0], meals: ['dinner', 'breakfast'], portions: 3 })
+  assert.deepEqual(readSchedule({ days: [], meals: [], portions: 12 }, fallback), { days: [], meals: [], portions: 12 })
+  assert.deepEqual(readSchedule({ days: [99], meals: ['snack'] }, fallback), { days: [], meals: [], portions: 2 })
+})
+
+test('missing schedule fields inherit the fallback without sharing arrays and invalid portions fall back', () => {
+  const fallback: WeeklySchedule = { days: [1, 4], meals: ['breakfast', 'dinner'], portions: 3 }
+  for (const value of [undefined, null, false, [], 'schedule', {}]) {
+    const restored = readSchedule(value, fallback)
+    assert.deepEqual(restored, fallback)
+    assert.notEqual(restored.days, fallback.days)
+    assert.notEqual(restored.meals, fallback.meals)
+  }
+  assert.deepEqual(readSchedule({ days: 'Monday', meals: null, portions: 1 }, fallback), { ...fallback, portions: 1 })
+  for (const portions of [undefined, null, 0, -1, 13, 1.5, NaN, Infinity, '3'])
+    assert.equal(readSchedule({ portions }, fallback).portions, 3)
+  assert.deepEqual(readSchedule({ meals: ['lunch'] }, fallback), { ...fallback, meals: ['lunch'] })
+})
+
+test('weekly generation requests one recipe per scheduled day for each meal', () => {
+  for (const days of [1, 3, 5, 7]) assert.equal(selectionSize(days), days)
+})
+
+test('live filling uses the preferred open day, then the first open day, and never overwrites a meal', () => {
+  const schedule: WeeklySchedule = { days: [3, 0, 1], meals: ['dinner'], portions: 2 }
+  const tuesday = fillOpenSlot([], schedule, 'a', 'dinner', 1)
+  assert.deepEqual(tuesday, [{ recipeId: 'a', portions: 2, day: 1, meal: 'dinner' }])
+  const taken = fillOpenSlot(tuesday, schedule, 'b', 'dinner', 1)
+  assert.deepEqual(taken[1], { recipeId: 'b', portions: 2, day: 0, meal: 'dinner' })
+  const full = fillOpenSlot(taken, schedule, 'c', 'dinner')
+  assert.deepEqual(full.map((item) => item.day), [1, 0, 3])
+  assert.equal(fillOpenSlot(full, schedule, 'd', 'dinner'), full)
+  assert.equal(fillOpenSlot(tuesday, schedule, 'a', 'breakfast'), tuesday)
+})
+
+test('alternatives are unplanned compatible recipes with known servings, newest first', () => {
+  const at = (id: string, createdAt: string, overrides: Partial<Recipe> = {}) =>
+    recipe({ id, source: { model: 'm', request: 'r', createdAt }, ...overrides })
+  const candidates = [at('old', '2026-10-01'), at('planned', '2026-10-24'), at('new', '2026-10-23'), at('mid', '2026-10-10'),
+    at('breakfast', '2026-10-24', { mealTypes: ['breakfast'] }), at('unknown-yield', '2026-10-24', { servings: null })]
+  const plan = [{ recipeId: 'planned', portions: 2, day: 0 as const, meal: 'dinner' as const }]
+  assert.deepEqual(slotAlternatives(candidates, plan, 'dinner').map((item) => item.id), ['new', 'mid', 'old'])
+  assert.deepEqual(slotAlternatives(candidates, plan, 'dinner', 1).map((item) => item.id), ['new'])
+  assert.deepEqual(slotAlternatives(candidates, plan, 'breakfast').map((item) => item.id), ['breakfast'])
+})
+
+test('daily macros add one portion of each planned meal and stay unknown when one meal lacks nutrition', () => {
+  const nutrition = { kcal: 500, protein: 30, carbs: 50, fat: 20 }
+  const recipes = [recipe({ id: 'a', nutrition }), recipe({ id: 'b', nutrition: { ...nutrition, kcal: 300 } }), recipe({ id: 'c' })]
+  const totals = dailyNutrition(recipes, [
+    { recipeId: 'b', portions: 4, day: 1, meal: 'dinner' }, { recipeId: 'a', portions: 2, day: 0, meal: 'breakfast' },
+    { recipeId: 'b', portions: 2, day: 0, meal: 'dinner' }, { recipeId: 'c', portions: 2, day: 1, meal: 'lunch' }, { recipeId: 'a', portions: 2 },
+  ])
+  assert.deepEqual(totals, [
+    { day: 0, meals: 2, nutrition: { kcal: 800, protein: 60, carbs: 100, fat: 40 } },
+    { day: 1, meals: 2, nutrition: null },
+  ])
+})
+
+test('menu output keeps well-formed dishes for requested meals and rejects an empty menu', () => {
+  const menu = toMenu({ dinner: [{ title: '  Lentil dal ', brief: 'Red lentils, coconut, rice.' }, { title: '', brief: 'x' }, 'Pasta'],
+    lunch: [{ title: 'Not requested', brief: '' }] }, ['breakfast', 'dinner'])
+  assert.deepEqual(menu, [{ meal: 'dinner', title: 'Lentil dal', brief: 'Red lentils, coconut, rice.' }])
+  assert.equal(toMenu({ dinner: [{ title: 'x'.repeat(200), brief: '' }] }, ['dinner'])[0].title.length, 120)
+  for (const output of [null, [], { dinner: [] }, { dinner: [{ brief: 'No title' }] }]) assert.throws(() => toMenu(output, ['dinner']), /empty/)
+})
+
+test('shortlist ranks trigram matches across spelling variants, prefers short names and drops weak hits', () => {
+  const items = [{ name: 'Topfencreme Vanille' }, { name: 'Clever Magertopfen' }, { name: 'Magermilch' }, { name: 'Tomate getrocknet, in Öl' },
+    { name: 'Tomate roh' }, { name: 'Hähnchen Brustfilet, roh' }]
+  assert.deepEqual(shortlist(['Magertopfen'], items).map((item) => item.name), ['Clever Magertopfen'])
+  assert.deepEqual(shortlist(['Tomaten', 'Tomate'], items).map((item) => item.name), ['Tomate roh', 'Tomate getrocknet, in Öl'])
+  assert.deepEqual(shortlist(['Hühnerbrustfilet'], items).map((item) => item.name), ['Hähnchen Brustfilet, roh'])
+  assert.deepEqual(shortlist(['Tomate'], items, 1).map((item) => item.name), ['Tomate roh'])
+  assert.deepEqual(shortlist(['a', ''], items), [])
+})
+
+test('shortlist weighs rare words over generic ones and gives every term its own slots', () => {
+  const milk = [{ name: 'Roggenbrot mit Buttermilch' }, { name: 'Ziegenmilch mind. 3 % Fett' },
+    { name: 'Milch fettarm, frisch, 1,5 % Fett, pasteurisiert' }, { name: 'Vollmilch frisch, 3,5 % Fett, pasteurisiert' }]
+  assert.equal(shortlist(['Kuhmilch 1,5 % Fett', 'Milch'], milk)[0].name, 'Milch fettarm, frisch, 1,5 % Fett, pasteurisiert')
+  const dairy = [{ name: 'Skyr, Frischkäse < 10 % Fett i. Tr.' }, { name: 'Frischkäsezubereitung Natur' }, { name: 'Joghurt Natur' },
+    { name: 'Kefir Natur' }, { name: 'Speisequark Magerstufe' }]
+  assert.deepEqual(shortlist(['Skyr natur', 'Speisequark Magerstufe'], dairy).map((item) => item.name),
+    ['Skyr, Frischkäse < 10 % Fett i. Tr.', 'Speisequark Magerstufe'])
+  const tomatoes = [{ name: 'Teigwaren, Ravioli in Tomatensoße, Konserve' }, { name: 'Bohnen weiß, in Tomatensoße, Konserve' }, { name: 'Tomate Konserve' }]
+  assert.equal(shortlist(['Tomaten Konserve'], tomatoes)[0].name, 'Tomate Konserve')
+})
+
+test('shortlist ties prefer the search word alone or ending a compound over compounds it only begins', () => {
+  // "Clever" supplies the "er " trigram, so all three score fully for Eier; shorter names used to win the tie.
+  const eggs = [{ name: 'Clever Eierlikör' }, { name: 'Clever Eierspätzle' }, { name: 'Clever Eier aus Bodenhaltung M' }]
+  assert.deepEqual(shortlist(['Eier'], eggs).map((item) => item.name), ['Clever Eier aus Bodenhaltung M', 'Clever Eierlikör', 'Clever Eierspätzle'])
+  assert.equal(shortlist(['Spinat'], [{ name: 'Spinatnudel' }, { name: 'Ja! Natürlich Jungspinat' }])[0].name, 'Ja! Natürlich Jungspinat')
+})
+
+test('food picks keep only IDs from the ingredient shortlist and carry the estimated grams', () => {
+  const output = { title: 'Bowl', ingredients: [
+    { name: 'Magertopfen', food: { terms: ['Speisequark Magerstufe'], grams: 250 } },
+    { name: 'Salz', food: { terms: ['Speisesalz'], grams: 2 } },
+    { name: 'Zimt', food: null }, 'broken'] }
+  assert.deepEqual(foodQueries(output), [['Speisequark Magerstufe', 'Magertopfen'], ['Speisesalz', 'Salz'], [], []])
+  const picked = withFoodPicks(output, [[{ id: 'M1' }], [{ id: 'R1' }], [], []], { foods: ['M1', 'M1', 'R1'] }) as { ingredients: Record<string, unknown>[] }
+  assert.deepEqual(picked.ingredients.slice(0, 3).map((item) => item.nutrition), [{ foodId: 'M1', grams: 250 }, null, null])
+  assert.equal('food' in picked.ingredients[0], false)
+  assert.equal(picked.ingredients[3], 'broken')
+  assert.deepEqual(listAnswer({ suitable: [['p2', 'x', 'p2'], 'bad'] }, 'suitable', 3, [[{ id: 'p2' }], [{ id: 'p3' }], [{ id: 'p4' }]]), [['p2'], null, null])
+  assert.deepEqual(listAnswer(null, 'terms', 2), [null, null])
+})
+
+test('only a deliberate empty pick for real candidates settles "nothing fits"; unusable answers stay open', () => {
+  const candidates = [[{ id: 'p1' }], [{ id: 'p2' }], [{ id: 'p3' }, { id: 'p4' }], [{ id: 'p5' }], []]
+  // Empty on purpose, another item's or a garbled ID, partly valid, not a list, empty without anything to choose from.
+  assert.deepEqual(listAnswer({ suitable: [[], ['p1', '0012'], ['p4', 'Magertopfen'], 'p5', []] }, 'suitable', 5, candidates),
+    [[], null, ['p4'], null, null])
+  assert.deepEqual(listAnswer({ terms: [['Topfen', ' '], [], [' ']] }, 'terms', 4), [['Topfen'], [], null, null])
+})
+
+const row = (overrides: Partial<ShoppingItem> = {}): ShoppingItem => ({
+  id: 'k', name: 'Magertopfen', amount: 300, unit: 'g', category: 'Milch & Eier', recipes: [], unresolved: false, ...overrides })
+const product = (overrides: Partial<StoreProduct> = {}): StoreProduct => ({
+  id: 'a', name: 'Clever Magertopfen', price: 0.99, quantity: 250, unit: 'g', bio: false, weighted: false, ...overrides })
+
+test('saved products reopen once every saved product left the shop, while "nothing fits" stays settled', () => {
+  const byId = new Map([['a', product()]])
+  assert.equal(savedProducts(undefined, byId), null)
+  assert.deepEqual(savedProducts([], byId), [])
+  assert.deepEqual(savedProducts(['gone', 'a'], byId), [product()])
+  assert.equal(savedProducts(['gone'], byId), null)
+})
+
+test('product lines buy whole packs, weigh deli goods and flag amounts they cannot compare', () => {
+  assert.deepEqual(productLine([row()], product()), { product: product(), packs: 2, cost: 1.98, check: false })
+  const deli = productLine([row({ amount: 200 })], product({ weighted: true, quantity: 1000, price: 21.9 }))
+  assert.equal(deli.packs, null)
+  assert.ok(Math.abs((deli.cost ?? NaN) - 4.38) < 1e-9)
+  assert.deepEqual(productLine([row({ amount: 2, unit: 'Stück' })], product()), { product: product(), packs: 1, cost: 0.99, check: true })
+  assert.equal(productLine([row({ amount: 2, unit: 'EL' })], product()).check, false)
+  assert.equal(productLine([row({ unresolved: true })], product()).packs, 1)
+
+  const suitable = [product(), product({ id: 'b', name: 'Stainzer Magertopfen', quantity: 500, price: 1.79 }),
+    product({ id: 'c', name: 'Ja! Natürlich Bio Magertopfen', price: 1.49, bio: true })]
+  assert.equal(chooseProduct([row()], suitable, 'cheapest', 'billa')?.product.id, 'b')
+  assert.equal(chooseProduct([row()], suitable, 'store-brand', 'billa')?.product.id, 'a')
+  assert.equal(chooseProduct([row()], suitable, 'bio', 'billa')?.product.id, 'c')
+  assert.equal(chooseProduct([row()], suitable, 'store-brand', 'spar')?.product.id, 'b')
+  assert.equal(chooseProduct([row()], suitable, 'cheapest', 'billa', 'c')?.product.id, 'c')
+  assert.equal(chooseProduct([row()], [], 'cheapest', 'billa'), null)
+  // "Da komm ich her!" ends in "!", where a word boundary cannot follow.
+  const carrots = [product({ id: 'kg', name: 'Clever Karotten', quantity: 1000, price: 1.49 }), product({ id: 'da', name: 'Da komm ich her! Karotten', quantity: 500, price: 0.94 }),
+    product({ id: 'brand', name: 'Marchfelder Karotten', quantity: 500, price: 0.89 })]
+  assert.equal(chooseProduct([row({ name: 'Karotten', amount: 160 })], carrots, 'store-brand', 'billa')?.product.id, 'da')
+})
+
+test('product lines count shop pieces like recipe pieces and flag many spoons and weighed goods without a weight', () => {
+  // One shop piece is one recipe piece (an avocado, a lemon); a multi-piece pack counts as usual.
+  assert.deepEqual(productLine([row({ name: 'Zitrone', amount: 3, unit: 'Stück' })], product({ unit: 'stk', quantity: 1, price: 0.69 })),
+    { product: product({ unit: 'stk', quantity: 1, price: 0.69 }), packs: 3, cost: 3 * 0.69, check: false })
+  assert.equal(productLine([row({ name: 'Eier', amount: 6, unit: 'Stück' })], product({ unit: 'stk', quantity: 10 })).check, false)
+  assert.equal(productLine([row({ amount: 4, unit: 'EL' })], product()).check, false)
+  assert.equal(productLine([row({ amount: 30, unit: 'EL' })], product()).check, true)
+  // Sold by weight: spoons or pieces cannot be weighed, so the cost stays unknown instead of a whole kilogram.
+  const weighed = product({ weighted: true, quantity: 1000, price: 38.9 })
+  for (const unit of ['EL', 'Stück']) assert.deepEqual(productLine([row({ amount: 2, unit })], weighed), { product: weighed, packs: null, cost: null, check: true })
+})
+
+test('one product line covers every row of an ingredient instead of a pack per unit', () => {
+  const paste = product({ name: 'Clever Tomatenmark', quantity: 200 })
+  assert.deepEqual(productLine([row({ amount: 1, unit: 'EL' }), row({ amount: 150 })], paste), { product: paste, packs: 1, cost: 0.99, check: false })
+  // Comparable rows add up; a row in another unit or without an amount rides along and is flagged.
+  assert.deepEqual(productLine([row({ amount: 300 }), row({ amount: 100, unresolved: true })], product()), { product: product(), packs: 2, cost: 1.98, check: true })
+  const oil = product({ name: 'Olivenöl', quantity: 500, unit: 'ml', price: 7.99 })
+  assert.deepEqual(productLine([row({ amount: 2, unit: 'EL' }), row({ amount: 15 })], oil), { product: oil, packs: 1, cost: 7.99, check: true })
+})
+
+test('choosing a product ranks by cost, a flagged line by its single pack, then weighed lower bounds and unpriced lines', () => {
+  const avocados = [product({ id: 'two', name: 'Bio-Avocado Tasse', quantity: 2, unit: 'stk', price: 3.49 }), product({ id: 'one', name: 'S-BUDGET Avocado', quantity: 1, unit: 'stk', price: 0.99 })]
+  assert.deepEqual(chooseProduct([row({ name: 'Avocado', amount: 1, unit: 'Stück' })], avocados, 'cheapest', 'spar'), { product: avocados[1], packs: 1, cost: 0.99, check: false })
+  // A cucumber sold per piece beats two snack packs that size 250 g, and keeps its flag; equal costs prefer the sized line.
+  const cucumbers = [product({ id: 'snack', name: 'SPAR Snack Gurke', quantity: 150, price: 1.7 }), product({ id: 'piece', name: 'SPAR Gurke', quantity: 1, unit: 'stk', price: 1.32 })]
+  assert.deepEqual(chooseProduct([row({ name: 'Gurke', amount: 250 })], cucumbers, 'cheapest', 'spar'), { product: cucumbers[1], packs: 1, cost: 1.32, check: true })
+  assert.equal(chooseProduct([row({ name: 'Gurke', amount: 250 })], [cucumbers[0], { ...cucumbers[1], price: 3.4 }], 'cheapest', 'spar')?.product.id, 'snack')
+  // A weighed loaf costs 120 g on paper, but the shop sells it whole: a packed loaf comes first; weighed lines remain when nothing is packed.
+  const bread = [product({ id: 'weighed', name: 'Roggenvollkornbrot', quantity: 1000, price: 5.42, weighted: true }), product({ id: 'loaf', name: 'Clever Roggenvollkornbrot', quantity: 500, price: 0.94 })]
+  assert.equal(chooseProduct([row({ name: 'Roggenbrot', amount: 120 })], bread, 'cheapest', 'billa')?.product.id, 'loaf')
+  const weighedLoaf = chooseProduct([row({ name: 'Roggenbrot', amount: 120 })], [bread[0]], 'cheapest', 'billa')!
+  assert.ok(Math.abs((weighedLoaf.cost ?? NaN) - 0.6504) < 1e-9)
+  assert.equal(isLowerBound(weighedLoaf, 'Brot & Getreide'), true)
+  // Loose tomatoes are weighed out to the amount, so their cost competes with a packed bag and is no lower bound.
+  const tomatoes = [product({ id: 'bag', name: 'Clever Tomaten', quantity: 1000, price: 2.99 }), product({ id: 'loose', name: 'Rispenparadeiser', quantity: 1000, price: 2.99, weighted: true })]
+  const looseLine = chooseProduct([row({ name: 'Tomaten', amount: 550, category: 'Obst & Gemüse' })], tomatoes, 'cheapest', 'billa')!
+  assert.equal(looseLine.product.id, 'loose')
+  assert.equal(isLowerBound(looseLine, 'Obst & Gemüse'), false)
+  const peppers = [product({ id: 'loose', name: 'Paprika rot lose', quantity: 1000, price: 3.99, weighted: true }), product({ id: 'mix', name: 'Paprika Mix', quantity: 500, price: 4.49 })]
+  assert.equal(chooseProduct([row({ name: 'Paprika', amount: 2, unit: 'Stück' })], peppers, 'cheapest', 'billa')?.product.id, 'mix')
+  const garlic = [product({ id: 'bulb', name: 'Knoblauch frisch', quantity: 1, unit: 'stk', price: 1.23 }), product({ id: 'net', name: 'Knoblauch', quantity: 80, price: 1.49 })]
+  assert.equal(chooseProduct([row({ name: 'Knoblauch', amount: 9, unit: 'Stück' })], garlic, 'cheapest', 'spar')?.product.id, 'net')
+})
+
+test('scaled sums that land on a whole pack or piece do not buy one more because of float noise', () => {
+  const base = (id: string, amount: number, unit = 'g') => recipe({ id, servings: 3, ingredients: [ingredient({ amount, unit })] })
+  const quark = [base('a', 200), base('b', 100)]
+  const [item] = buildShoppingList(quark, quark.map((data) => ({ recipeId: data.id, portions: 5 })), [])
+  assert.equal(productLine([item], product({ quantity: 500 })).packs, 1)
+  const pieces = [base('c', 1.5, 'Stück'), base('d', 4, 'Stück'), base('e', 0.5, 'Stück')]
+  assert.equal(buildShoppingList(pieces, pieces.map((data) => ({ recipeId: data.id, portions: 5 })), [])[0].amount, 10)
 })

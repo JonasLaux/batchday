@@ -11,14 +11,17 @@
   "scripts": {
     "dev": "vite dev --port 3000",
     "generate-routes": "tsr generate",
-    "test": "node --test src/lib/recipes.test.ts src/lib/nutrition.test.ts",
+    "test": "node --test src/lib/*.test.ts",
+    "chatgpt:login": "node scripts/chatgpt-login.ts",
     "typecheck": "tsc --noEmit",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "products:import": "node --max-old-space-size=4096 scripts/import-products.mjs"
   },
   "dependencies": {
     "@tanstack/react-router": "1.170.45",
     "@tanstack/react-start": "1.169.3",
+    "jose": "^6.2.13",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

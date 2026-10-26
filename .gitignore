@@ -6,6 +6,11 @@ dist-ssr
 .env
 .env.*
 !.env.example
+chatgpt.json
+chatgpt.json.*.tmp
+pending-registration.json
+host-id.json
+session.lock/
 .npmrc
 *.log
 .agents/

@@ -1,20 +1,40 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
-import { generateRecipe, getRecipes, reviseRecipe } from "../lib/catalog";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
+  generateRecipe,
+  getChatGPTAccount,
+  getRecipes,
+  planMenu,
+} from "../lib/catalog";
+import { getProductData, matchProducts } from "../lib/products";
+import {
+  allergenOptions,
   buildShoppingList,
-  countIngredients,
+  chooseProduct,
+  commonDislikes,
+  fillOpenSlot,
   filterRecipes,
   formatAmount,
   generateWeeklyPlan,
+  ingredientId,
+  ingredientIds,
+  isLowerBound,
+  pantryStaples,
+  pickRules,
   planItemKey,
-  replacePlannedRecipe,
+  readFilters,
+  readSchedule,
+  tagOptions,
 } from "../lib/recipes";
 import type {
   Filters,
   MealType,
+  MenuDish,
+  PickRule,
   PlanItem,
+  ProductLine,
   Recipe,
+  StoreProduct,
   Weekday,
   WeeklySchedule,
 } from "../lib/types";
@@ -26,7 +46,14 @@ export const Route = createFileRoute("/")({
     recipe: typeof search.recipe === "string" ? search.recipe : undefined,
     slot: typeof search.slot === "string" ? search.slot : undefined,
   }),
-  loader: () => getRecipes(),
+  loader: async () => {
+    const [recipes, chatGPTAccount, productData] = await Promise.all([
+      getRecipes(),
+      getChatGPTAccount(),
+      getProductData(),
+    ]);
+    return { recipes, chatGPTAccount, productData };
+  },
   component: Home,
 });
 const initialFilters: Filters = {
@@ -40,10 +67,21 @@ const initialFilters: Filters = {
   excludedIngredients: [],
   maxIngredients: null,
 };
+// Removed discovery controls must not invisibly constrain the next plan.
+const readPlanFilters = (value: unknown): Filters => ({
+  ...readFilters(value),
+  search: "",
+  maxMinutes: null,
+  difficulty: "",
+  maxIngredients: null,
+  pantryOnly: false,
+});
 const labels: Record<string, string> = {
-  "one-pot": "One Pot",
+  "one-pot": "One pot",
   "meal-prep": "Meal prep",
-  "protein-source": "25 g+ protein",
+  "protein-source": "High protein",
+  keto: "Keto",
+  "low-calorie": "Low calorie",
   vegan: "Vegan",
   vegetarian: "Vegetarian",
   mixed: "Meat / fish",
@@ -66,43 +104,50 @@ const allergenLabels: Record<string, string> = {
   Sesam: "Sesame",
 };
 const stores = [
-  { id: "billa", name: "BILLA", detail: "Your weekly grocery shop" },
-  { id: "spar", name: "SPAR", detail: "A familiar stop for your shop" },
-  { id: "hofer", name: "HOFER", detail: "Keep your grocery shop simple" },
-  { id: "lidl", name: "Lidl", detail: "Your shop, your plan" },
-  { id: "penny", name: "PENNY", detail: "Ready for your next shop" },
-  {
-    id: "other",
-    name: "Another supermarket",
-    detail: "Any supermarket works",
-  },
+  { id: "billa", name: "BILLA" },
+  { id: "spar", name: "SPAR" },
+  { id: "hofer", name: "HOFER" },
+  { id: "lidl", name: "Lidl" },
+  { id: "penny", name: "PENNY" },
+  { id: "other", name: "Another supermarket" },
 ];
-type SetupStep = "store" | "preferences" | "week" | "pantry";
-const setupSteps: SetupStep[] = ["store", "preferences", "week", "pantry"];
+type SetupStep = "store" | "preferences" | "pantry" | "week";
+const setupSteps: SetupStep[] = ["store", "preferences", "pantry", "week"];
 const stepTitles = {
-  store: "Your supermarket",
-  preferences: "Your preferences",
-  week: "Your week",
-  pantry: "Your pantry",
+  store: "Store",
+  preferences: "Preferences",
+  pantry: "Pantry",
+  week: "Schedule",
 };
-const staples = new Set(["wasser", "salz", "pfeffer"]);
-const pantryStaples = [
-  "butter",
-  "olivenoel",
-  "oel",
-  "knoblauch",
-  "salz",
-  "pfeffer",
-  "zwiebeln",
-  "mehl",
-  "zucker",
-  "reis",
-  "nudeln",
-  "eier",
-  "milch",
-  "essig",
-  "haferflocken",
-];
+const stepHeadings = {
+  store: "Where do you shop?",
+  preferences: "What suits your week?",
+  pantry: "What’s already at home?",
+  week: "When are you eating?",
+};
+const stepDescriptions = {
+  store: "One supermarket for your weekly shop.",
+  preferences: "Pick what matters. Leave the rest open.",
+  pantry: "We’ll leave these off your shopping list.",
+  week: "Choose your days, meals and servings.",
+};
+const preferenceNotes: Record<string, string> = {
+  "one-pot": "Less washing up",
+  "protein-source": "25 g+ protein per serving",
+  keto: "10 g carbs or less per serving",
+  "low-calorie": "500 kcal or less per serving",
+  "meal-prep": "Keeps and reheats well",
+};
+const pantryOptions = pantryStaples.map(([name, category]) => ({
+  id: ingredientId(name),
+  name,
+  category,
+}));
+type RunDish = MenuDish & {
+  day?: Weekday;
+  status: "waiting" | "writing" | "ready" | "failed";
+  recipeId?: string;
+};
 const weekdays = [
   "Monday",
   "Tuesday",
@@ -112,124 +157,48 @@ const weekdays = [
   "Saturday",
   "Sunday",
 ];
-const meals: { id: MealType; name: string; icon: string }[] = [
-  { id: "breakfast", name: "Breakfast", icon: "🥣" },
-  { id: "lunch", name: "Lunch", icon: "🥗" },
-  { id: "dinner", name: "Dinner", icon: "🍲" },
+const meals: { id: MealType; name: string }[] = [
+  { id: "breakfast", name: "Breakfast" },
+  { id: "lunch", name: "Lunch" },
+  { id: "dinner", name: "Dinner" },
 ];
 const initialSchedule: WeeklySchedule = {
   days: [0, 1, 2, 3, 4],
   meals: ["dinner"],
   portions: 2,
 };
+const pickRuleLabels: Record<PickRule, string> = {
+  cheapest: "Cheapest",
+  "store-brand": "Store brand first",
+  bio: "Organic first",
+};
+const euro = new Intl.NumberFormat("de-AT", {
+  style: "currency",
+  currency: "EUR",
+});
+const plural = (count: number, word: string) =>
+  `${count} ${word}${count === 1 ? "" : "s"}`;
+// fetch rejects with a TypeError when the request never reaches the server; server errors keep their message.
+const failureMessage = (error: unknown, failed: string) =>
+  error instanceof Error && !(error instanceof TypeError)
+    ? error.message
+    : `${failed} Check your connection and try again.`;
+const packSize = (product: StoreProduct) =>
+  formatAmount(
+    product.quantity,
+    product.unit === "stk" ? "Stück" : product.unit,
+  );
+const packDetails = (product: StoreProduct) =>
+  product.weighted
+    ? `${euro.format(product.price)} per ${packSize(product)}`
+    : `${packSize(product)} · ${euro.format(product.price)}`;
+const productText = (line: ProductLine) =>
+  `${line.packs === null ? "" : `${line.packs} × `}${line.product.name} (${packDetails(line.product)})`;
 const portionNumber = (value: unknown): value is number =>
   typeof value === "number" &&
   Number.isInteger(value) &&
   value >= 1 &&
   value <= 12;
-
-function Icon({
-  name,
-  size = 20,
-}: {
-  name:
-    | "search"
-    | "plus"
-    | "check"
-    | "clock"
-    | "close"
-    | "bag"
-    | "leaf"
-    | "arrow"
-    | "copy"
-    | "book";
-  size?: number;
-}) {
-  const paths = {
-    search: "m21 21-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0",
-    plus: "M12 5v14M5 12h14",
-    check: "m5 12 4 4L19 6",
-    clock: "M12 8v5l3 2M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0",
-    close: "m6 6 12 12M6 18 18 6",
-    bag: "M5 7h14l2 14H3L5 7ZM8 8V6a4 4 0 0 1 8 0v2",
-    leaf: "M20 3C7 2 1 8 5 16s17 6 15-13ZM5 20 16 8",
-    arrow: "M5 12h14m-5-5 5 5-5 5",
-    copy: "M8 8h12v13H8V8ZM16 8V3H3v13h5",
-    book: "M12 5C8 2 4 3 2 4v16c3-2 7-2 10 0m0-15c4-3 8-2 10-1v16c-3-2-7-2-10 0V5Z",
-  };
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d={paths[name]} />
-    </svg>
-  );
-}
-
-function DishArt({
-  recipe,
-  small = false,
-}: {
-  recipe: Recipe;
-  small?: boolean;
-}) {
-  if (recipe.image) {
-    return (
-      <div className={`dish-art recipe-photo ${small ? "small" : ""}`}>
-        <img
-          src={recipe.image.url}
-          alt={recipe.image.alt}
-          loading="lazy"
-          decoding="async"
-        />
-      </div>
-    );
-  }
-  const theme =
-    /noodle|nudel|pasta|spaghetti|lasagne|tagliatelle|bolognese/i.test(
-      recipe.title,
-    )
-      ? "pasta"
-      : /soup|stew|suppe|eintopf|gulasch|curry|chili/i.test(recipe.title)
-        ? "soup"
-        : /potato|kartoffel|puffer|rösti|gratin/i.test(recipe.title)
-          ? "potato"
-          : /salad|vegetable|spinach|salat|gemüse|zucchini|spinat/i.test(
-                recipe.title,
-              )
-            ? "greens"
-            : "grains";
-  return (
-    <div
-      className={`dish-art ${theme} ${small ? "small" : ""}`}
-      aria-hidden="true"
-    >
-      <div className="plate">
-        <div className="food">
-          <i />
-          <i />
-          <i />
-          <i />
-          <i />
-          <i />
-          <i />
-          <i />
-          <i />
-        </div>
-        <span className="garnish">✦</span>
-      </div>
-      <span className="art-sprig">⌁</span>
-    </div>
-  );
-}
 
 function RecipeMacros({ recipe }: { recipe: Recipe }) {
   if (!recipe.nutrition) return null;
@@ -256,25 +225,37 @@ function RecipeMacros({ recipe }: { recipe: Recipe }) {
 }
 
 function Home() {
-  const recipes = Route.useLoaderData();
+  const { recipes, chatGPTAccount, productData } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const [setupStep, setSetupStep] = useState<SetupStep | null>("store");
   const [journeyComplete, setJourneyComplete] = useState(false);
   const [store, setStore] = useState<string | null>(null);
   const [dislikeSearch, setDislikeSearch] = useState("");
-  const [tab, setTab] = useState<"recipes" | "plan" | "shopping">("recipes");
+  const [tab, setTab] = useState<"plan" | "shopping">("plan");
+  const [pantrySearch, setPantrySearch] = useState("");
+  const [showProducts, setShowProducts] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
   const [filters, setFilters] = useState<Filters>(initialFilters);
-  const [sort, setSort] = useState("name");
-  const [discoveryMeal, setDiscoveryMeal] = useState<MealType | "">("");
   const [pantry, setPantry] = useState<string[]>([]);
   const [plan, setPlan] = useState<PlanItem[]>([]);
   const [schedule, setSchedule] = useState<WeeklySchedule>(initialSchedule);
   const [scheduleDraft, setScheduleDraft] =
     useState<WeeklySchedule>(initialSchedule);
   const [planMessage, setPlanMessage] = useState("");
+  const [generationError, setGenerationError] = useState(false);
   const [checked, setChecked] = useState<string[]>([]);
+  const [previousSetup, setPreviousSetup] = useState<{
+    store: string;
+    filters: Filters;
+    pantry: string[];
+    checked: string[];
+  } | null>(null);
+  const editingSetup = journeyComplete && !previousSetup;
   const [loaded, setLoaded] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark" | null>(null);
+  const [systemDark, setSystemDark] = useState(false);
+  const dark = theme === "dark" || (theme === null && systemDark);
   const [storageError, setStorageError] = useState(false);
   const [portions, setPortions] = useState(2);
   const selected = recipes.find((recipe) => recipe.id === search.recipe);
@@ -283,32 +264,35 @@ function Home() {
     selected?.servings ?? undefined,
   );
   const [copied, setCopied] = useState(false);
+  const [pickRule, setPickRule] = useState<PickRule>("cheapest");
+  // Manual product picks per `${store}:${ingredient id}`; everything else follows the pick rule.
+  const [productChoices, setProductChoices] = useState<Record<string, string>>(
+    {},
+  );
+  const [productMatches, setProductMatches] = useState<{
+    store: string;
+    latestChange: string;
+    products: Record<string, StoreProduct[] | null>;
+  } | null>(null);
+  // The store whose products are being found, and the last matching error with its store.
+  const [matching, setMatching] = useState<string | null>(null);
+  const [matchError, setMatchError] = useState<{
+    store: string;
+    message: string;
+  } | null>(null);
+  const productNote = useRef<HTMLParagraphElement>(null);
+  const refocus = useRef(false);
+  const matchVersion = useRef(0);
+  const currentStore = useRef(store);
+  useEffect(() => {
+    currentStore.current = store;
+  }, [store]);
   const router = useRouter();
-  const [dishWish, setDishWish] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState("");
-  const [feedback, setFeedback] = useState("");
-  const [revising, setRevising] = useState(false);
-  const [revisionError, setRevisionError] = useState("");
-  const activeRecipe = useRef({ recipe: search.recipe, slot: search.slot });
-  activeRecipe.current = { recipe: search.recipe, slot: search.slot };
-  const generate = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setGenerating(true);
-    setGenerateError("");
-    try {
-      const id = await generateRecipe({ data: dishWish });
-      await router.invalidate();
-      setDishWish("");
-      void navigate({ search: { recipe: id } });
-    } catch (error) {
-      setGenerateError(
-        error instanceof Error ? error.message : "Recipe generation failed.",
-      );
-    } finally {
-      setGenerating(false);
-    }
-  };
+  const [run, setRun] = useState<{
+    dishes: RunDish[];
+    stopping: boolean;
+  } | null>(null);
+  const runToken = useRef<{ stopped: boolean } | null>(null);
   const ingredientMap = new Map(
     recipes.flatMap((recipe) =>
       recipe.ingredients.map(
@@ -319,91 +303,87 @@ function Home() {
   const ingredients = [...ingredientMap.values()].sort((a, b) =>
     a.name.localeCompare(b.name, "de"),
   );
-  const pantryOptions = pantryStaples.flatMap((id) =>
-    ingredientMap.has(id) ? [ingredientMap.get(id)!] : [],
+  // Common dislikes come first so setup works before any recipe exists.
+  const dislikeOptions = [
+    ...commonDislikes.map((name) => ({ id: ingredientId(name), name })),
+    ...ingredients.filter((ingredient) => ingredient.id !== "wasser"),
+  ].filter(
+    (option, index, all) =>
+      all.findIndex((other) => other.id === option.id) === index,
   );
-  const dislikeOptions = ingredients.filter(
-    (ingredient) =>
-      ingredient.id !== "wasser" &&
-      ingredient.category !== "Prüfen" &&
-      !/Alternative \/ kombinierte|Zutatenzuordnung prüfen/.test(
-        ingredient.note ?? "",
+  const allPantryOptions = [
+    ...pantryOptions,
+    ...ingredients
+      .filter((item) => item.id !== "wasser")
+      .map((item) =>
+        item.id === "oel" ? { ...item, name: "Öl (unspecified)" } : item,
       ),
+    ...pantry
+      .filter(
+        (id) =>
+          !pantryOptions.some((item) => item.id === id) &&
+          !ingredients.some((item) => item.id === id),
+      )
+      .map((id) => ({
+        id,
+        name: id === "oel" ? "Öl (unspecified)" : id,
+        category: "Already selected",
+      })),
+  ].filter(
+    (item, index, all) =>
+      all.findIndex((other) => other.id === item.id) === index,
   );
-  const tags = [...new Set(recipes.flatMap((recipe) => recipe.tags))].sort();
-  const allergens = [
-    ...new Set(recipes.flatMap((recipe) => recipe.allergens)),
-  ].sort();
+  const nameOf = (id: string) =>
+    [...allPantryOptions, ...dislikeOptions].find((item) => item.id === id)
+      ?.name ?? id;
+  const pantryVisible = allPantryOptions.filter((item) =>
+    pantrySearch.trim()
+      ? item.name
+          .toLocaleLowerCase("de")
+          .includes(pantrySearch.trim().toLocaleLowerCase("de"))
+      : pantryOptions.some((staple) => staple.id === item.id) ||
+        pantry.includes(item.id),
+  );
 
   useEffect(() => {
     if (loaded) return;
     try {
       const saved =
         JSON.parse(localStorage.getItem("batchday-poc") || "{}") ?? {};
+      setTheme(
+        saved.theme === "light" || saved.theme === "dark" ? saved.theme : null,
+      );
       const validStore = stores.some((item) => item.id === saved.store)
         ? saved.store
         : null;
-      const completed = saved.journeyComplete === true && validStore !== null;
+      const previous =
+        saved.journeyComplete === true &&
+        setupSteps.includes(saved.setupStep) &&
+        stores.some((item) => item.id === saved.previousSetup?.store)
+          ? {
+              store: saved.previousSetup.store as string,
+              filters: readPlanFilters(saved.previousSetup.filters),
+              pantry: ingredientIds(saved.previousSetup.pantry),
+              checked: Array.isArray(saved.previousSetup.checked)
+                ? saved.previousSetup.checked.filter(
+                    (id: unknown): id is string => typeof id === "string",
+                  )
+                : [],
+            }
+          : null;
+      setPreviousSetup(previous);
+      const completed = saved.journeyComplete === true && !!(validStore || previous);
       setStore(validStore);
       setJourneyComplete(completed);
-      if (["recipes", "plan", "shopping"].includes(saved.tab))
-        setTab(saved.tab);
+      setTab(saved.tab === "shopping" ? "shopping" : "plan");
       setSetupStep(
         validStore && setupSteps.includes(saved.setupStep)
           ? saved.setupStep
-          : completed
+          : completed && !previous
             ? null
             : "store",
       );
-      if (saved.filters && typeof saved.filters === "object") {
-        const value = saved.filters;
-        setFilters({
-          search: typeof value.search === "string" ? value.search : "",
-          diet: ["", "vegan", "vegetarian", "mixed"].includes(value.diet)
-            ? value.diet
-            : "",
-          maxMinutes: [15, 30, 45, 60, 90].includes(value.maxMinutes)
-            ? value.maxMinutes
-            : null,
-          difficulty: ["", "easy", "medium", "involved"].includes(
-            value.difficulty,
-          )
-            ? value.difficulty
-            : "",
-          tags: Array.isArray(value.tags)
-            ? value.tags.filter(
-                (tag: unknown) =>
-                  typeof tag === "string" &&
-                  recipes.some((recipe) => recipe.tags.includes(tag)),
-              )
-            : [],
-          excludedAllergens: Array.isArray(value.excludedAllergens)
-            ? value.excludedAllergens
-                .map((allergen: unknown) =>
-                  typeof allergen === "string"
-                    ? (allergenLabels[allergen] ?? allergen)
-                    : null,
-                )
-                .filter(
-                  (allergen: unknown): allergen is string =>
-                    typeof allergen === "string" &&
-                    recipes.some((recipe) =>
-                      recipe.allergens.includes(allergen),
-                    ),
-                )
-            : [],
-          pantryOnly: value.pantryOnly === true,
-          excludedIngredients: Array.isArray(value.excludedIngredients)
-            ? value.excludedIngredients.filter(
-                (id: unknown): id is string =>
-                  typeof id === "string" && ingredientMap.has(id),
-              )
-            : [],
-          maxIngredients: [5, 8, 10, 12].includes(value.maxIngredients)
-            ? value.maxIngredients
-            : null,
-        });
-      }
+      setFilters(readPlanFilters(saved.filters));
       if (Array.isArray(saved.plan))
         setPlan(
           saved.plan
@@ -427,55 +407,27 @@ function Home() {
                 ) === index,
             ),
         );
-      if (saved.schedule && typeof saved.schedule === "object") {
-        const value = saved.schedule;
-        const savedDays: unknown[] = Array.isArray(value.days)
-          ? value.days
-          : initialSchedule.days;
-        const savedMeals: unknown[] = Array.isArray(value.meals)
-          ? value.meals
-          : initialSchedule.meals;
-        const restoredSchedule: WeeklySchedule = {
-          days: [
-            ...new Set(
-              savedDays.filter(
-                (day): day is Weekday =>
-                  typeof day === "number" &&
-                  Number.isInteger(day) &&
-                  day >= 0 &&
-                  day <= 6,
-              ),
-            ),
-          ],
-          meals: [
-            ...new Set(
-              savedMeals.filter((meal): meal is MealType =>
-                meals.some((option) => option.id === meal),
-              ),
-            ),
-          ],
-          portions: portionNumber(value.portions)
-            ? value.portions
-            : initialSchedule.portions,
-        };
-        setSchedule(restoredSchedule);
-        setScheduleDraft(restoredSchedule);
-        if (portionNumber(value.portions)) setPortions(value.portions);
-      }
-      if (Array.isArray(saved.pantry))
-        setPantry(
-          saved.pantry.filter(
-            (id: unknown): id is string =>
-              typeof id === "string" &&
-              recipes.some((recipe) =>
-                recipe.ingredients.some((ingredient) => ingredient.id === id),
-              ),
-          ),
-        );
+      const restoredSchedule = readSchedule(saved.schedule, initialSchedule);
+      setSchedule(restoredSchedule);
+      setScheduleDraft(readSchedule(saved.scheduleDraft, restoredSchedule));
+      setPortions(restoredSchedule.portions);
+      if (Array.isArray(saved.pantry)) setPantry(ingredientIds(saved.pantry));
       if (Array.isArray(saved.checked))
         setChecked(
           saved.checked.filter(
             (id: unknown): id is string => typeof id === "string",
+          ),
+        );
+      if (pickRules.includes(saved.pickRule)) setPickRule(saved.pickRule);
+      if (saved.productChoices && typeof saved.productChoices === "object")
+        setProductChoices(
+          Object.fromEntries(
+            Object.entries(saved.productChoices).filter(
+              (entry): entry is [string, string] =>
+                /^[a-z]{1,20}:[a-z0-9]{1,80}$/.test(entry[0]) &&
+                typeof entry[1] === "string" &&
+                entry[1].length <= 100,
+            ),
           ),
         );
     } catch {
@@ -495,9 +447,14 @@ function Home() {
             store,
             filters,
             journeyComplete,
+            previousSetup,
             setupStep,
             schedule,
+            scheduleDraft,
             tab,
+            pickRule,
+            productChoices,
+            theme,
           }),
         );
       } catch {
@@ -512,14 +469,17 @@ function Home() {
     store,
     filters,
     journeyComplete,
+    previousSetup,
     setupStep,
     schedule,
+    scheduleDraft,
     tab,
+    pickRule,
+    productChoices,
+    theme,
   ]);
   useEffect(() => {
     if (selected) {
-      setFeedback("");
-      setRevisionError("");
       const item = plan.find((item) =>
         selectedTarget?.day !== undefined
           ? item.day === selectedTarget.day && item.meal === selectedTarget.meal
@@ -534,46 +494,206 @@ function Home() {
     }
   }, [selected?.id, search.slot, loaded]);
 
+  useEffect(() => {
+    const preference = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => setSystemDark(preference.matches);
+    update();
+    preference.addEventListener("change", update);
+    return () => preference.removeEventListener("change", update);
+  }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    if (theme) document.documentElement.dataset.theme = theme;
+    else delete document.documentElement.dataset.theme;
+  }, [theme, loaded]);
+
   const selectedStore = stores.find((item) => item.id === store);
-  const showTab = (nextTab: "recipes" | "plan" | "shopping") => {
+  const showTab = (nextTab: "plan" | "shopping") => {
     if (search.recipe) void navigate({ search: {} });
     setTab(nextTab);
-    if (journeyComplete) setSetupStep(null);
+    if (journeyComplete) {
+      if (previousSetup) {
+        setStore(previousSetup.store);
+        setFilters(previousSetup.filters);
+        setPantry(previousSetup.pantry);
+        setChecked(previousSetup.checked);
+        setPreviousSetup(null);
+      }
+      setSetupStep(null);
+      if (setupStep) setScheduleDraft(schedule);
+    }
   };
   const editWeek = () => {
     setScheduleDraft(schedule);
     setSetupStep("week");
   };
+  const startOver = () => {
+    if (run || !store) return;
+    setPreviousSetup({ store, filters, pantry, checked });
+    setStore(null);
+    setFilters(initialFilters);
+    setPantry([]);
+    setScheduleDraft(initialSchedule);
+    setDislikeSearch("");
+    setPantrySearch("");
+    setSetupStep("store");
+  };
+  // The browser drives generation so each finished recipe shows up at once; server calls stay stateless.
+  const generateWeek = async (week: WeeklySchedule) => {
+    const token = { stopped: false };
+    runToken.current = token;
+    const active = () => runToken.current === token;
+    const days = [...week.days].sort((a, b) => a - b);
+    setTab("plan");
+    setPlanMessage("");
+    setGenerationError(false);
+    setRun({ dishes: [], stopping: false });
+    try {
+      const menu = await planMenu({
+        data: { meals: week.meals, days: days.length, filters, pantry },
+      });
+      if (!active() || token.stopped) return;
+      // Each dish follows its meal type’s selected days in order.
+      const dishes: RunDish[] = menu.map((dish, index) => ({
+        ...dish,
+        status: "waiting",
+        day: days[
+          menu.slice(0, index).filter((other) => other.meal === dish.meal)
+            .length
+        ],
+      }));
+      // Replace the week only once there is a menu, so a failed request keeps the current plan.
+      setSchedule(week);
+      changePlan(() => []);
+      setPortions(week.portions);
+      setRun({ dishes: [...dishes], stopping: false });
+      const update = (index: number, change: Partial<RunDish>) => {
+        dishes[index] = { ...dishes[index], ...change };
+        if (active())
+          setRun((current) => current && { ...current, dishes: [...dishes] });
+      };
+      const errors: string[] = [];
+      let refresh = Promise.resolve();
+      let next = 0;
+      await Promise.all(
+        Array.from({ length: 3 }, async () => {
+          while (next < dishes.length && active() && !token.stopped) {
+            const index = next++;
+            const { meal, title, brief, day } = dishes[index];
+            update(index, { status: "writing" });
+            try {
+              const recipeId = await generateRecipe({
+                data: {
+                  dish: { meal, title, brief },
+                  portions: week.portions,
+                  filters,
+                  pantry,
+                },
+              });
+              // Serialized reloads: a slot only references a recipe once the catalogue containing it has loaded.
+              await (refresh = refresh
+                .catch(() => undefined)
+                .then(() => router.invalidate()));
+              update(index, { status: "ready", recipeId });
+              if (day !== undefined && active())
+                changePlan((current) =>
+                  fillOpenSlot(current, week, recipeId, meal, day),
+                );
+            } catch (error) {
+              errors.push(
+                error instanceof Error
+                  ? error.message
+                  : "Recipe generation failed.",
+              );
+              update(index, { status: "failed" });
+            }
+          }
+        }),
+      );
+      if (!active()) return;
+      const ready = dishes.filter((dish) => dish.recipeId).length;
+      setPlanMessage(
+        `${token.stopped ? "Stopped. " : ""}${ready} new ${ready === 1 ? "recipe" : "recipes"} with macros. ${
+          errors.length
+            ? `${errors.length} could not be written: ${errors[0]} `
+            : ""
+        }`,
+      );
+    } catch (error) {
+      if (active()) {
+        setGenerationError(true);
+        setPlanMessage(
+          error instanceof Error
+            ? error.message
+            : "Menu planning failed. Please try again.",
+        );
+      }
+    } finally {
+      if (active()) {
+        runToken.current = null;
+        setRun(null);
+      }
+    }
+  };
+  const stopRun = () => {
+    if (runToken.current) runToken.current.stopped = true;
+    setRun((current) => current && { ...current, stopping: true });
+  };
   const makeWeeklyPlan = (week = schedule) => {
+    if (run) return;
+    setScheduleDraft(week);
+    if (chatGPTAccount) {
+      if (!plan.length) setSchedule(week);
+      void generateWeek(week);
+      return;
+    }
+    useSavedWeek(week);
+  };
+  const useSavedWeek = (week: WeeklySchedule) => {
+    setGenerationError(false);
     const result = generateWeeklyPlan(recipes, week, filters, pantry);
+    setSchedule(week);
     changePlan(() => result.plan);
     setPortions(week.portions);
     setPlanMessage(
       result.unfilled.length
-        ? `${result.unfilled.length} meals are unfilled: no matching recipe has a known serving count. Adjust your preferences or choose a recipe yourself.`
+        ? `${result.unfilled.length} meals are unfilled: no matching recipe has a known serving count. Try different preferences or connect ChatGPT to create recipes.`
         : `${result.plan.length} meals planned. You can swap any recipe.`,
     );
     setTab("plan");
   };
   const finishSetup = () => {
-    if (setupStep === "week") {
-      setSchedule(scheduleDraft);
-      if (journeyComplete) makeWeeklyPlan(scheduleDraft);
+    if (editingSetup && setupStep !== "week") {
+      setSetupStep(null);
+      return;
     }
-    if (journeyComplete || setupStep === "pantry") {
-      if (!journeyComplete) makeWeeklyPlan();
+    if (setupStep === "week") {
+      makeWeeklyPlan(scheduleDraft);
+      setPreviousSetup(null);
       setJourneyComplete(true);
       setSetupStep(null);
-    } else if (setupStep === "store") setSetupStep("preferences");
-    else if (setupStep === "preferences") editWeek();
-    else setSetupStep("pantry");
+    } else if (setupStep) {
+      setSetupStep(setupSteps[setupSteps.indexOf(setupStep) + 1]);
+    }
   };
   const backSetup = () => {
-    if (journeyComplete) setSetupStep(null);
-    else if (setupStep === "pantry") editWeek();
-    else if (setupStep === "week") setSetupStep("preferences");
-    else if (setupStep === "preferences") setSetupStep("store");
+    if (editingSetup || (previousSetup && setupStep === "store")) {
+      showTab("plan");
+    } else if (setupStep && setupStep !== "store")
+      setSetupStep(setupSteps[setupSteps.indexOf(setupStep) - 1]);
   };
+  useEffect(() => {
+    if (!loaded) return;
+    document.title = `${selected?.title ?? (setupStep ? stepTitles[setupStep] : tab === "plan" ? "Your week" : "Shopping list")} · Batchday`;
+    heading.current?.focus({ preventScroll: true });
+    window.scrollTo(0, 0);
+  }, [setupStep, search.recipe, tab, loaded]);
+  useEffect(
+    () => () => {
+      if (runToken.current) runToken.current.stopped = true;
+    },
+    [],
+  );
   const changePlan = (update: (current: PlanItem[]) => PlanItem[]) => {
     setChecked([]);
     setCopied(false);
@@ -585,35 +705,25 @@ function Home() {
     setCopied(false);
     setPantry(update);
   };
-  const addPantry = (id: string) => {
-    if (id) changePantry((current) => [...current, id]);
-  };
-  const changePortions = (id: string, count: number) =>
+  // Plan swaps follow preferences, not the text typed into the recipe search.
+  const preferredRecipes = filterRecipes(
+    recipes,
+    { ...filters, search: "" },
+    pantry,
+  ).sort((a, b) => a.title.localeCompare(b.title, "en"));
+  const swapSlot = (item: PlanItem, recipeId: string) =>
     changePlan((current) =>
-      current.map((item) =>
-        planItemKey(item) === id ? { ...item, portions: count } : item,
+      current.map((entry) =>
+        planItemKey(entry) === planItemKey(item)
+          ? {
+              recipeId,
+              day: item.day,
+              meal: item.meal,
+              portions: item.portions,
+            }
+          : entry,
       ),
     );
-  const missing = (recipe: Recipe) =>
-    new Set(
-      recipe.ingredients
-        .filter(
-          (ingredient) =>
-            !staples.has(ingredient.id) && !pantry.includes(ingredient.id),
-        )
-        .map((ingredient) => ingredient.id),
-    ).size;
-  const matchingRecipes = filterRecipes(recipes, filters, pantry).sort(
-    (a, b) =>
-      sort === "pantry"
-        ? missing(a) - missing(b) || a.title.localeCompare(b.title, "en")
-        : a.title.localeCompare(b.title, "en"),
-  );
-  const visible = matchingRecipes.filter(
-    (recipe) =>
-      !discoveryMeal ||
-      (recipe.mealTypes ?? ["lunch", "dinner"]).includes(discoveryMeal),
-  );
   const weekSlots = [...schedule.days]
     .sort()
     .flatMap((day) =>
@@ -621,10 +731,6 @@ function Home() {
         .filter((meal) => schedule.meals.includes(meal.id))
         .map((meal) => ({ day, meal: meal.id })),
     );
-  const unfilledSlots = weekSlots.filter(
-    (slot) =>
-      !plan.some((item) => item.day === slot.day && item.meal === slot.meal),
-  );
   const recipeSlots = selected
     ? weekSlots.filter((slot) =>
         (selected.mealTypes ?? ["lunch", "dinner"]).includes(slot.meal),
@@ -645,40 +751,153 @@ function Home() {
                 )),
         ))
       : undefined;
-  const revise = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!selected || revising) return;
-    const originalId = selected.id;
-    const targetKey = selectedTarget
-      ? planItemKey({ ...selectedTarget, recipeId: originalId, portions: detailPortions })
-      : `recipe:${originalId}`;
-    const slot = search.slot;
-    const stillViewing = () => activeRecipe.current.recipe === originalId && activeRecipe.current.slot === slot;
-    setRevising(true);
-    setRevisionError("");
-    try {
-      const id = await reviseRecipe({ data: { recipeId: originalId, feedback } });
-      await router.invalidate();
-      const variant = (await getRecipes()).find((recipe) => recipe.id === id);
-      if (!variant) throw new Error("The updated recipe could not be loaded.");
-      const compatible = selectedTarget?.meal === undefined ||
-        (variant.mealTypes ?? ["lunch", "dinner"]).includes(selectedTarget.meal);
-      if (compatible) changePlan((current) => replacePlannedRecipe(current, targetKey, originalId, id));
-      if (stillViewing()) {
-        setFeedback("");
-        await navigate({ search: { recipe: id, slot: compatible ? (slot?.startsWith("recipe:") ? `recipe:${id}` : slot) : undefined } });
-      }
-    } catch (error) {
-      if (stillViewing()) setRevisionError(error instanceof Error ? error.message : "Recipe changes failed.");
-    } finally {
-      setRevising(false);
-    }
-  };
   const shopping = buildShoppingList(recipes, plan, pantry);
   const groups = [...new Set(shopping.map((item) => item.category))];
   const remaining = shopping.filter(
     (item) => !checked.includes(item.id),
   ).length;
+  const storeName = selectedStore?.name ?? "this supermarket";
+  const productStock = store ? productData?.stores[store] : undefined;
+  // Rows of one ingredient split by unit or unknown amount share one product line, shown on the first row.
+  const ingredientRows = [
+    ...new Set(shopping.map((item) => ingredientId(item.name))),
+  ].map((id) => shopping.filter((item) => ingredientId(item.name) === id));
+  const productNames = ingredientRows.map(([item]) => item.name);
+  // undefined or null: not matched yet; []: nothing in this shop fits.
+  const suitableProducts = (item: { name: string }) =>
+    productMatches?.store === store
+      ? productMatches.products[ingredientId(item.name)]
+      : undefined;
+  const choiceKey = (item: { name: string }) =>
+    `${store}:${ingredientId(item.name)}`;
+  const productLines = new Map(
+    ingredientRows.flatMap((rows) => {
+      const suitable = suitableProducts(rows[0]);
+      const line =
+        store && suitable?.length
+          ? chooseProduct(
+              rows,
+              suitable,
+              pickRule,
+              store,
+              productChoices[choiceKey(rows[0])],
+            )
+          : null;
+      return line ? [[rows[0].id, line] as const] : [];
+    }),
+  );
+  const unmatchedCount = productNames.filter(
+    (name) => !suitableProducts({ name }),
+  ).length;
+  // A product sold by weight has no cost for pieces or spoons, so it stays out of the total.
+  const pricedLines = [...productLines.values()].filter(
+    (line) => line.cost !== null,
+  );
+  // Add the displayed cents, including Intl's half-cent rounding for weighed products.
+  const productTotal =
+    pricedLines.reduce(
+      (sum, line) =>
+        sum +
+        Number(
+          euro
+            .formatToParts(line.cost ?? 0)
+            .filter(
+              (part) => part.type === "integer" || part.type === "fraction",
+            )
+            .map((part) => part.value)
+            .join(""),
+        ),
+      0,
+    ) / 100;
+  const unpricedCount = productLines.size - pricedLines.length;
+  const staleProducts =
+    !!productData &&
+    !!productStock &&
+    Date.parse(productData.downloadedAt) -
+      Date.parse(productStock.latestChange) >
+      7 * 86_400_000;
+  const productKey = productStock ? JSON.stringify([store, productNames]) : "";
+  const finding =
+    matching &&
+    `Finding ${stores.find((item) => item.id === matching)?.name ?? ""} products…`;
+  // Saved matches load with the list; new matching only runs from the explicit button.
+  useEffect(() => {
+    if (
+      !loaded ||
+      !showProducts ||
+      tab !== "shopping" ||
+      !store ||
+      !productNames.length ||
+      !productKey
+    )
+      return;
+    let current = true;
+    const version = matchVersion.current;
+    setMatchError(null);
+    matchProducts({ data: { store, names: productNames, cachedOnly: true } })
+      .then((result) => {
+        if (current && version === matchVersion.current)
+          setProductMatches({ store, ...result });
+      })
+      .catch((error) => {
+        if (current && version === matchVersion.current)
+          setMatchError({
+            store,
+            message: failureMessage(
+              error,
+              "Saved products could not be loaded.",
+            ),
+          });
+      });
+    return () => {
+      current = false;
+    };
+  }, [loaded, tab, productKey, showProducts]);
+  // Success removes the focused Find button once everything is matched; if focus fell to the page, keep it in the panel.
+  useEffect(() => {
+    if (matching || !refocus.current) return;
+    refocus.current = false;
+    if (document.activeElement === document.body)
+      productNote.current?.focus({ preventScroll: true });
+  }, [matching]);
+  const findProducts = async () => {
+    // The button stays focusable while matching (aria-disabled), so a second press lands here.
+    if (!store || matching) return;
+    // A result updates only its own store and merges in, so a late answer cannot hide newer matches.
+    const show = (result: {
+      latestChange: string;
+      products: Record<string, StoreProduct[] | null>;
+    }) => {
+      if (currentStore.current !== store) return;
+      matchVersion.current += 1;
+      setProductMatches((current) => ({
+        store,
+        latestChange: result.latestChange,
+        products: {
+          ...(current?.store === store ? current.products : {}),
+          ...result.products,
+        },
+      }));
+    };
+    refocus.current = true;
+    matchVersion.current += 1;
+    setMatching(store);
+    setMatchError(null);
+    try {
+      show(await matchProducts({ data: { store, names: productNames } }));
+    } catch (error) {
+      setMatchError({
+        store,
+        message: failureMessage(error, "Product matching failed."),
+      });
+      // Batches saved before the failure still show.
+      await matchProducts({
+        data: { store, names: productNames, cachedOnly: true },
+      }).then(show, () => undefined);
+    } finally {
+      setMatching(null);
+    }
+  };
   const setFilter = <K extends keyof Filters>(key: K, value: Filters[K]) =>
     setFilters((current) => ({ ...current, [key]: value }));
   const toggleFilter = (
@@ -699,32 +918,6 @@ function Home() {
       },
     });
   };
-  const addToPlan = (
-    recipe: Recipe,
-    count = portions,
-    base = recipe.servings ?? undefined,
-  ) => {
-    if (!base) {
-      openRecipe(recipe);
-      return;
-    }
-    const targetSlot = selected?.id === recipe.id ? selectedTarget : undefined;
-    changePlan((current) => [
-      ...current.filter((item) =>
-        targetSlot?.day !== undefined
-          ? !(item.day === targetSlot.day && item.meal === targetSlot.meal)
-          : !(item.recipeId === recipe.id && item.day === undefined),
-      ),
-      {
-        ...(targetSlot?.day !== undefined
-          ? { day: targetSlot.day, meal: targetSlot.meal }
-          : {}),
-        recipeId: recipe.id,
-        portions: count,
-        ...(recipe.servings === null ? { baseServings: base } : {}),
-      },
-    ]);
-  };
   const copyList = async () => {
     const text = groups
       .map(
@@ -733,10 +926,10 @@ function Home() {
             .filter(
               (item) => item.category === group && !checked.includes(item.id),
             )
-            .map(
-              (item) =>
-                `☐ ${formatAmount(item.amount, item.unit)} ${item.name}${item.unresolved ? " (check quantity)" : ""}${item.note ? ` — ${item.note}` : ""}`,
-            )
+            .map((item) => {
+              const line = showProducts ? productLines.get(item.id) : undefined;
+              return `[ ] ${formatAmount(item.amount, item.unit)} ${item.name}${item.unresolved ? " (check quantity)" : ""}${item.note ? ` — ${item.note}` : ""}${line ? `\n   ${productText(line)}${line.check ? ", check amount" : ""}` : ""}`;
+            })
             .join("\n")}`,
       )
       .join("\n\n");
@@ -752,228 +945,311 @@ function Home() {
     }
   };
 
+  const togglePantry = (id: string) =>
+    changePantry((current) =>
+      current.includes(id)
+        ? current.filter((value) => value !== id)
+        : [...current, id],
+    );
+  const selectedPlanItem =
+    selected && selectedTarget
+      ? plan.find(
+          (item) =>
+            planItemKey(item) ===
+              planItemKey({
+                ...selectedTarget,
+                recipeId: selected.id,
+                portions: detailPortions,
+              }) && item.recipeId === selected.id,
+        )
+      : undefined;
+  const filledMeals = weekSlots.filter((slot) =>
+    plan.some((item) => item.day === slot.day && item.meal === slot.meal),
+  ).length;
+  const summaryPreferences =
+    [
+      filters.diet && labels[filters.diet],
+      ...filters.tags.map((tag) => labels[tag]),
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Open to anything";
+  const runReady =
+    run?.dishes.filter((dish) => dish.status === "ready").length ?? 0;
+  const canContinue =
+    !!store &&
+    (setupStep !== "week" ||
+      (!!scheduleDraft.days.length && !!scheduleDraft.meals.length)) &&
+    !run;
+  const renderMeal = (
+    item: PlanItem | undefined,
+    day?: Weekday,
+    meal?: MealType,
+  ) => {
+    const recipe = item && recipes.find((entry) => entry.id === item.recipeId);
+    const candidates = meal
+      ? preferredRecipes.filter(
+          (entry) =>
+            entry.id !== recipe?.id &&
+            entry.servings !== null &&
+            (entry.mealTypes ?? ["lunch", "dinner"]).includes(meal),
+        )
+      : [];
+    const writing = run?.dishes.find(
+      (dish) => dish.day === day && dish.meal === meal,
+    );
+    return (
+      <div
+        className={`meal-row ${recipe ? "" : "empty-meal"}`}
+        key={meal ?? item?.recipeId}
+      >
+        <span className="meal-label">
+          {meals.find((entry) => entry.id === meal)?.name ?? "Extra meal"}
+        </span>
+        <div className="meal-main">
+          {recipe ? (
+            <>
+              <button
+                className="meal-title"
+                onClick={() => openRecipe(recipe, item)}
+              >
+                {recipe.title}
+              </button>
+              <p className="meal-meta">
+                {item!.portions} servings ·{" "}
+                {recipe.minutes ? `${recipe.minutes} min` : "Time unknown"}
+                {recipe.nutrition
+                  ? ` · ${Math.round(recipe.nutrition.kcal)} kcal · ${Math.round(recipe.nutrition.protein)} g protein per serving`
+                  : " · Nutrition incomplete"}
+              </p>
+            </>
+          ) : (
+            <>
+              <span className="meal-title">
+                {writing
+                  ? writing.status === "failed"
+                    ? "Couldn’t create this meal"
+                    : writing.title
+                  : "No meal planned"}
+              </span>
+              <p className="meal-meta">
+                {writing && writing.status !== "failed"
+                  ? writing.status === "writing"
+                    ? "Writing recipe…"
+                    : "Waiting…"
+                  : "Choose a saved recipe or edit your plan."}
+              </p>
+            </>
+          )}
+        </div>
+        {!!candidates.length && (
+          <select
+            className="meal-swap"
+            aria-label={`${recipe ? "Swap" : "Choose"} ${meal} on ${day === undefined ? "extra meal" : weekdays[day]}`}
+            value=""
+            disabled={!!run}
+            onChange={(event) => {
+              if (!event.target.value || day === undefined || !meal) return;
+              if (item) swapSlot(item, event.target.value);
+              else
+                changePlan((current) =>
+                  fillOpenSlot(
+                    current,
+                    schedule,
+                    event.target.value,
+                    meal,
+                    day,
+                  ),
+                );
+            }}
+          >
+            <option value="">{recipe ? "Swap" : "Choose"}</option>
+            {candidates.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.title}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+    );
+  };
   return (
-    <div className={`app-shell ${setupStep ? "setup-mode" : "workspace-mode"}`}>
+    <div className="app-shell">
       <header className="app-header">
         <button
           className="brand"
-          onClick={() => showTab("recipes")}
-          aria-label="Batchday recipes"
+          onClick={() => journeyComplete && showTab("plan")}
+          aria-label="Batchday home"
         >
-          <span className="brand-mark">
+          <span className="brand-mark" aria-hidden="true">
             <i />
             <i />
             <i />
           </span>
           batchday
         </button>
-        {journeyComplete && (
-          <nav className="main-nav" aria-label="Main navigation">
+        {journeyComplete && !setupStep && (
+          <nav className="header-nav" aria-label="Main navigation">
             <button
-              className={tab === "recipes" ? "active" : ""}
-              aria-current={tab === "recipes" ? "page" : undefined}
-              onClick={() => showTab("recipes")}
-            >
-              <Icon name="book" size={18} />
-              Recipes
-            </button>
-            <button
-              className={tab === "plan" ? "active" : ""}
-              aria-current={tab === "plan" ? "page" : undefined}
+              className={!selected && tab === "plan" ? "active" : ""}
+              aria-current={!selected && tab === "plan" ? "page" : undefined}
               onClick={() => showTab("plan")}
             >
-              <Icon name="leaf" size={18} />
-              This week<span className="nav-count">{plan.length}</span>
+              Week
             </button>
             <button
-              className={tab === "shopping" ? "active" : ""}
-              aria-current={tab === "shopping" ? "page" : undefined}
+              className={!selected && tab === "shopping" ? "active" : ""}
+              aria-current={
+                !selected && tab === "shopping" ? "page" : undefined
+              }
               onClick={() => showTab("shopping")}
             >
-              <Icon name="bag" size={18} />
-              Shopping list
-              {shopping.length > 0 && (
-                <span className="nav-count">{remaining}</span>
-              )}
+              Shopping
             </button>
           </nav>
         )}
-        <span className="local-status">
-          <span />
-          Your local kitchen
-        </span>
+        <div className="header-actions">
+          {journeyComplete && setupStep ? (
+            <button className="text-button" onClick={() => showTab("plan")}>
+              Back to week
+            </button>
+          ) : journeyComplete ? (
+            <button
+              className="text-button"
+              disabled={!!run}
+              onClick={() => {
+                void navigate({ search: {} });
+                editWeek();
+              }}
+            >
+              Edit plan
+            </button>
+          ) : (
+            <span className="header-note">
+              A little planning. A better week.
+            </span>
+          )}
+          <button
+            className="theme-toggle"
+            aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
+            disabled={!loaded}
+            onClick={() => setTheme(dark ? "light" : "dark")}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              {dark ? (
+                <>
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" />
+                </>
+              ) : (
+                <path d="M20.5 13a8.5 8.5 0 0 1-9.5-9.5A8.5 8.5 0 1 0 20.5 13Z" />
+              )}
+            </svg>
+            {dark ? "Light" : "Dark"}
+          </button>
+        </div>
       </header>
-      <main className="app-main">
+      <main className="main">
         {storageError && (
-          <p className="notice" role="status">
-            Your browser could not read or save all local data. Your current
-            plan still works for this session.
+          <p className="notice error" role="alert">
+            Your browser couldn’t restore or save all your choices. Changes may
+            not survive a reload.
           </p>
         )}
-        {selected ? (
-          <article className="recipe-page" aria-labelledby="recipe-page-title">
-            <div className="dialog-top">
-              <p className="eyebrow">YOUR RECIPE, READY TO COOK.</p>
-              <button
-                className="text-button"
-                onClick={() => void navigate({ search: {} })}
-                aria-label="Back to overview"
-              >
-                <span>← Back</span>
-              </button>
+        {!loaded ? (
+          <h1 ref={heading} tabIndex={-1}>
+            Opening your kitchen…
+          </h1>
+        ) : search.recipe && !selected ? (
+          <div className="empty-state">
+            <h1 ref={heading} tabIndex={-1}>
+              Recipe not found
+            </h1>
+            <p>This recipe is no longer in your collection.</p>
+            <button
+              className="button secondary"
+              onClick={() => void navigate({ search: {} })}
+            >
+              Back to your week
+            </button>
+          </div>
+        ) : selected ? (
+          <article className="recipe-detail">
+            <button
+              className="back-link text-button"
+              onClick={() => void navigate({ search: {} })}
+            >
+              ← Back to {tab === "shopping" ? "shopping" : "your week"}
+            </button>
+            <div className="recipe-heading">
+              <h1 ref={heading} tabIndex={-1}>
+                {selected.title}
+              </h1>
+              <p className="recipe-meta">
+                {selected.minutes
+                  ? `${selected.minutes} min`
+                  : "Cooking time unknown"}{" "}
+                · {labels[selected.diet]} · Untested recipe
+              </p>
             </div>
-            <div className="dialog-heading">
-              <div>
-                <div className="card-meta">
-                  <span>{labels[selected.diet]}</span>
-                  <span>·</span>
-                  <span>
-                    {selected.minutes
-                      ? `${selected.minutes} min`
-                      : "Cooking time unknown"}
-                  </span>
-                </div>
-                <h1 id="recipe-page-title">{selected.title}</h1>
-                <p>
-                  {selected.ingredients
-                    .slice(0, 4)
-                    .map((ingredient) => ingredient.name)
-                    .join(" · ")}
-                </p>
-              </div>
-              <div className="recipe-heading-photo">
-                <DishArt recipe={selected} />
-                {selected.image?.credit && (
-                  <small className="image-credit">
-                    Representative dish photo · {selected.image.credit}
-                  </small>
-                )}
-              </div>
-            </div>
-            <div className="recipe-page-nutrition">
-              <RecipeMacros recipe={selected} />
-              {selected.nutritionMetadata && (
-                <p className="data-note">
-                  {selected.nutritionMetadata.source}
-                  {selected.nutritionMetadata.note
-                    ? ` · ${selected.nutritionMetadata.note}`
-                    : ""}
-                </p>
-              )}
-              {!selected.nutrition && (
-                <p className="data-note">
-                  {selected.nutritionMissing?.length
-                    ? `Nutrition incomplete for ${selected.nutritionMissing.join(", ")}.`
-                    : "Nutrition is not available for this recipe."}
-                </p>
-              )}
-            </div>
-            <div className="recipe-portion-bar">
-              <label>
-                I am cooking{" "}
-                <select
-                  aria-label="Recipe portions"
-                  value={detailPortions}
-                  onChange={(event) =>
-                    setDetailPortions(Number(event.target.value))
-                  }
-                >
-                  {Array.from({ length: 12 }, (_, i) => (
-                    <option key={i + 1}>{i + 1}</option>
-                  ))}
-                </select>{" "}
-                portions
-              </label>
-              {selected.servings ? (
-                <span>Original recipe: {selected.servings} portions</span>
-              ) : (
-                <label className="base-input">
-                  Original recipe:{" "}
-                  <input
-                    type="number"
-                    min="1"
-                    max="12"
-                    step="1"
-                    value={baseServings ?? ""}
-                    aria-label="Original recipe serving count"
-                    placeholder="?"
-                    onChange={(event) =>
-                      setBaseServings(
-                        portionNumber(Number(event.target.value))
-                          ? Number(event.target.value)
-                          : undefined,
-                      )
-                    }
-                  />{" "}
-                  portions
-                </label>
-              )}
-            </div>
-            <div className="recipe-slot-bar">
-              <label>
-                Plan for{" "}
-                <select
-                  aria-label="Meal for this recipe"
-                  value={
-                    selectedTarget?.day !== undefined
-                      ? `${selectedTarget.day}-${selectedTarget.meal}`
-                      : ""
-                  }
-                  onChange={(event) =>
-                    void navigate({
-                      search: {
-                        recipe: selected.id,
-                        slot: event.target.value || undefined,
-                      },
-                    })
-                  }
-                >
-                  <option value="">Extra meal, no set day</option>
-                  {recipeSlots.map((slot) => (
-                    <option
-                      key={`${slot.day}-${slot.meal}`}
-                      value={`${slot.day}-${slot.meal}`}
-                    >
-                      {weekdays[slot.day]} ·{" "}
-                      {meals.find((meal) => meal.id === slot.meal)?.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            {!baseServings && (
-              <p className="notice">
-                The source does not give a serving count. Add your own estimate
-                to scale the quantities and plan this recipe. Until then, the
-                original quantities are shown.
+            <RecipeMacros recipe={selected} />
+            {!selected.nutrition && (
+              <p className="muted">
+                Nutrition incomplete
+                {selected.nutritionMissing?.length
+                  ? `: ${selected.nutritionMissing.join(", ")}`
+                  : ""}
+                .
               </p>
             )}
-            <div className="recipe-detail-columns">
-              <section>
-                <h3>
-                  Ingredients{" "}
-                  <span>
-                    {baseServings
-                      ? `for ${detailPortions} portions`
-                      : "Original quantities"}
-                  </span>
-                </h3>
-                <ul className="ingredient-list">
+            <div className="recipe-columns">
+              <section className="ingredients-panel">
+                <div className="day-heading">
+                  <h2>Ingredients</h2>
+                  <label className="portions-control">
+                    <span className="sr-only">Recipe servings</span>
+                    <select
+                      aria-label="Recipe servings"
+                      value={detailPortions}
+                      onChange={(event) =>
+                        setDetailPortions(Number(event.target.value))
+                      }
+                    >
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          {i + 1} servings
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                {!baseServings && (
+                  <p className="notice">
+                    Original serving count unknown. Quantities below cannot be
+                    scaled.
+                  </p>
+                )}
+                <ul>
                   {selected.ingredients.map((ingredient, index) => (
-                    <li key={`${ingredient.id}-${index}`}>
+                    <li
+                      className="ingredient-row"
+                      key={`${ingredient.id}-${index}`}
+                    >
                       <span>
-                        <strong>{ingredient.name}</strong>
-                        {(ingredient.note || ingredient.amount === null) && (
-                          <small>
-                            {ingredient.note || ingredient.original}
-                          </small>
-                        )}
+                        {ingredient.name}
+                        {ingredient.note && <small>{ingredient.note}</small>}
                       </span>
-                      <b
-                        className={
-                          ingredient.amount === null ? "unresolved" : ""
-                        }
-                      >
+                      <span className="shopping-amount">
                         {formatAmount(
                           ingredient.amount === null
                             ? null
@@ -983,1313 +1259,938 @@ function Home() {
                                   : 1),
                           ingredient.unit,
                         )}
-                      </b>
+                      </span>
                     </li>
                   ))}
                 </ul>
-                <details className="source-details">
-                  <summary>Source & original quantities</summary>
-                  <p>
-                    AI-generated by {selected.source.model} from “
-                    {selected.source.request}” on{" "}
-                    {new Date(selected.source.createdAt).toLocaleDateString(
-                      "en-AT",
-                    )}
-                    . Untested: check amounts and times when you cook it.
-                  </p>
-                  {selected.source.basedOn && (
-                    <p>
-                      Changed from{" "}
-                      <button className="text-button" onClick={() => void navigate({ search: { recipe: selected.source.basedOn } })}>
-                        the previous recipe
-                      </button>
-                      : “{selected.source.feedback}”
-                    </p>
+                {selectedPlanItem &&
+                  selectedPlanItem.portions !== detailPortions &&
+                  baseServings && (
+                    <button
+                      className="button primary"
+                      disabled={!!run}
+                      onClick={() =>
+                        changePlan((current) =>
+                          current.map((item) =>
+                            planItemKey(item) === planItemKey(selectedPlanItem)
+                              ? { ...item, portions: detailPortions }
+                              : item,
+                          ),
+                        )
+                      }
+                    >
+                      Update planned servings
+                    </button>
                   )}
-                  <ul>
-                    {selected.ingredients.map((ingredient, index) => (
-                      <li key={index}>{ingredient.original}</li>
-                    ))}
-                  </ul>
-                </details>
               </section>
               <section className="instructions">
-                <h3>Method</h3>
+                <h2>Let’s cook</h2>
                 <ol>
                   {selected.instructions.map((step, index) => (
-                    <li key={index}>
-                      <span>{index + 1}</span>
-                      <p>{step}</p>
-                    </li>
+                    <li key={index}>{step}</li>
                   ))}
                 </ol>
-                <p className="data-note">
-                  Quantities in the method are from the original recipe. Use the
-                  ingredient list when scaling.
+                <p className="recipe-note">
+                  When scaling, use the ingredient amounts on this page. Amounts
+                  written in the method stay as originally generated.
                 </p>
               </section>
             </div>
-            <section aria-label="Customize this recipe">
-              <h3>Make it yours</h3>
-              <p className="data-note">Ask for a swap or different amounts. Ingredients, method and macros update together.</p>
-              <form className="catalog-toolbar" onSubmit={revise}>
-                <label className="search-field">
-                  <input
-                    value={feedback}
-                    maxLength={500}
-                    onChange={(event) => setFeedback(event.target.value)}
-                    placeholder="e.g. Use half the pasta and add more vegetables"
-                    aria-label="Recipe changes"
-                    disabled={revising}
-                  />
-                </label>
-                <button className="primary-button" disabled={revising || !feedback.trim()}>
-                  {revising ? "Updating …" : "Update recipe"}
-                </button>
-              </form>
-              {revisionError && <p className="notice" role="alert">{revisionError}</p>}
-            </section>
-            <div className="dialog-bottom">
+            <details className="disclosure">
+              <summary>Recipe notes</summary>
               <p>
-                {!baseServings
-                  ? "Add the original serving count first."
-                  : selected.servings === null
-                    ? "Serving count supplied by you."
-                    : "Ready for your next meal."}
-              </p>
-              <button
-                className="primary-button"
-                disabled={!baseServings}
-                onClick={() => {
-                  addToPlan(selected, detailPortions, baseServings);
-                  void navigate({ search: {} });
-                }}
-              >
-                <Icon name="plus" size={18} />
-                {selectedTarget?.day !== undefined ||
-                plan.some(
-                  (item) =>
-                    item.recipeId === selected.id && item.day === undefined,
-                )
-                  ? "Update meal plan"
-                  : "Add to meal plan"}
-              </button>
-            </div>
-          </article>
-        ) : setupStep ? (
-          <section className="setup-journey" aria-label="Prepare your week">
-            <ol className="journey-stepper" aria-label="Your four setup steps">
-              {setupSteps.map((step, index) => (
-                <li
-                  key={step}
-                  className={
-                    setupStep === step
-                      ? "current"
-                      : setupSteps.indexOf(setupStep) > index || journeyComplete
-                        ? "done"
-                        : ""
-                  }
-                >
-                  <button
-                    disabled={
-                      !journeyComplete &&
-                      setupSteps.indexOf(step) > setupSteps.indexOf(setupStep)
-                    }
-                    aria-current={setupStep === step ? "step" : undefined}
-                    onClick={() =>
-                      step === "week" ? editWeek() : setSetupStep(step)
-                    }
-                  >
-                    <span>
-                      {setupSteps.indexOf(setupStep) > index ||
-                      (journeyComplete && setupStep !== step) ? (
-                        <Icon name="check" size={14} />
-                      ) : (
-                        index + 1
-                      )}
-                    </span>
-                    {stepTitles[step]}
-                  </button>
-                </li>
-              ))}
-            </ol>
-            <div className="journey-heading">
-              <p className="eyebrow">
-                {journeyComplete
-                  ? "EDIT YOUR CHOICES"
-                  : `STEP ${setupSteps.indexOf(setupStep) + 1} OF ${setupSteps.length}`}
-              </p>
-              <h1>
-                {setupStep === "store" ? (
-                  <>
-                    Where do you <em>shop?</em>
-                  </>
-                ) : setupStep === "preferences" ? (
-                  <>
-                    What do you <em>enjoy eating?</em>
-                  </>
-                ) : setupStep === "week" ? (
-                  <>
-                    When will you <em>cook?</em>
-                  </>
-                ) : (
-                  <>
-                    What is already <em>at home?</em>
-                  </>
+                AI-generated by {selected.source.model} on{" "}
+                {new Date(selected.source.createdAt).toLocaleDateString(
+                  "en-AT",
                 )}
-              </h1>
-              <p>
-                {setupStep === "store"
-                  ? "A good week starts with your next grocery shop."
-                  : setupStep === "preferences"
-                    ? "Choose what suits you. You can change everything later."
-                    : setupStep === "week"
-                      ? "Choose your days, meals and portions. We will suggest a matching recipe for each meal."
-                      : "Choose your pantry staples. We will leave these ingredients off your shopping list."}
+                . Check amounts and timing when cooking.
               </p>
-            </div>
-            {setupStep === "store" ? (
-              <div className="store-grid">
-                {stores.map((item) => (
-                  <button
-                    key={item.id}
-                    className={`store-card ${store === item.id ? "selected" : ""}`}
-                    aria-pressed={store === item.id}
-                    onClick={() => setStore(item.id)}
-                  >
-                    <span className="selection-mark">
-                      {store === item.id && <Icon name="check" size={12} />}
-                    </span>
-                    <span className="store-icon" aria-hidden="true">
-                      <Icon name="bag" size={36} />
-                    </span>
-                    <strong>{item.name}</strong>
-                    <span>{item.detail}</span>
-                  </button>
-                ))}
-              </div>
-            ) : setupStep === "preferences" ? (
-              <div className="preferences-screen">
-                <div className="preference-grid">
-                  {[
-                    ["vegan", "Vegan", "All plant-based", "🌱"],
-                    [
-                      "vegetarian",
-                      "Vegetarian",
-                      "Let vegetables take the lead",
-                      "🥦",
-                    ],
-                    ["mixed", "Meat & fish", "A little of everything", "🍲"],
-                  ].map(([value, title, detail, illustration]) => (
-                    <button
-                      key={value}
-                      className={`preference-card ${filters.diet === value ? "selected" : ""}`}
-                      aria-pressed={filters.diet === value}
-                      onClick={() =>
-                        setFilter("diet", filters.diet === value ? "" : value)
-                      }
-                    >
-                      <span className="preference-art" aria-hidden="true">
-                        {illustration}
-                      </span>
-                      <span>
-                        <strong>{title}</strong>
-                        <small>{detail}</small>
-                      </span>
-                      <span className="selection-mark">
-                        {filters.diet === value && (
-                          <Icon name="check" size={12} />
-                        )}
-                      </span>
-                    </button>
-                  ))}
-                  {tags.map((tag) => (
-                    <button
-                      key={tag}
-                      className={`preference-card ${filters.tags.includes(tag) ? "selected" : ""}`}
-                      aria-pressed={filters.tags.includes(tag)}
-                      onClick={() => toggleFilter("tags", tag)}
-                    >
-                      <span className="preference-art" aria-hidden="true">
-                        {tag === "one-pot"
-                          ? "🥘"
-                          : tag === "protein-source"
-                            ? "🫘"
-                            : "🥡"}
-                      </span>
-                      <span>
-                        <strong>{labels[tag] ?? tag}</strong>
-                        <small>
-                          {tag === "one-pot"
-                            ? "Fewer pans, less washing up"
-                            : tag === "protein-source"
-                              ? "Estimated protein per portion"
-                              : "Cook once, enjoy later"}
-                        </small>
-                      </span>
-                      <span className="selection-mark">
-                        {filters.tags.includes(tag) && (
-                          <Icon name="check" size={12} />
-                        )}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <p className="preference-footnote">
-                  Nothing selected? All recipes stay available. 25 g+ protein
-                  uses the estimate per portion. Meal prep is a
-                  broad tag, not storage advice.
-                </p>
-                <div className="preference-refinements">
-                  <fieldset>
-                    <legend>Time & effort</legend>
-                    <div className="refinement-selects">
-                      <label>
-                        Maximum total time
-                        <select
-                          value={filters.maxMinutes ?? ""}
-                          onChange={(event) =>
-                            setFilter(
-                              "maxMinutes",
-                              event.target.value
-                                ? Number(event.target.value)
-                                : null,
-                            )
-                          }
-                        >
-                          <option value="">No time limit</option>
-                          {[15, 30, 45, 60, 90].map((time) => (
-                            <option key={time} value={time}>
-                              Up to {time} minutes
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        Difficulty
-                        <select
-                          value={filters.difficulty}
-                          onChange={(event) =>
-                            setFilter("difficulty", event.target.value)
-                          }
-                        >
-                          <option value="">All difficulty levels</option>
-                          <option value="easy">Easy</option>
-                          <option value="medium">Medium</option>
-                          <option value="involved">More involved</option>
-                        </select>
-                      </label>
-                    </div>
-                    <p className="filter-help">
-                      Total time includes preparation and cooking. A time limit
-                      hides recipes with no known total time (
-                      {
-                        recipes.filter((recipe) => recipe.minutes !== null)
-                          .length
-                      }{" "}
-                      of {recipes.length} have a time). Difficulty describes the
-                      effort, separately from time.
-                    </p>
-                  </fieldset>
-                  <fieldset>
-                    <legend>Exclude allergens</legend>
-                    <div className="allergen-options">
-                      {allergens.map((allergen) => (
-                        <button
-                          key={allergen}
-                          className={
-                            filters.excludedAllergens.includes(allergen)
-                              ? "selected"
-                              : ""
-                          }
-                          aria-pressed={filters.excludedAllergens.includes(
-                            allergen,
-                          )}
-                          onClick={() =>
-                            toggleFilter("excludedAllergens", allergen)
-                          }
-                        >
-                          {filters.excludedAllergens.includes(allergen) && (
-                            <Icon name="close" size={11} />
-                          )}
-                          {allergenLabels[allergen] ?? allergen}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="filter-help">
-                      Detected from ingredients. Check the recipe and product
-                      labels yourself.
-                    </p>
-                  </fieldset>
-                  <fieldset>
-                    <legend>Fewer ingredients</legend>
-                    <label className="ingredient-limit">
-                      Maximum ingredient count
-                      <select
-                        value={filters.maxIngredients ?? ""}
-                        onChange={(event) =>
-                          setFilter(
-                            "maxIngredients",
-                            event.target.value
-                              ? Number(event.target.value)
-                              : null,
-                          )
-                        }
-                      >
-                        <option value="">No limit</option>
-                        {[5, 8, 10, 12].map((count) => (
-                          <option key={count} value={count}>
-                            At most {count} ingredients
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <p className="filter-help">
-                      Distinct ingredients, excluding water, salt and pepper.
-                    </p>
-                  </fieldset>
-                  <fieldset>
-                    <legend>Ingredients I dislike</legend>
-                    <div className="allergen-options">
-                      {(filters.excludedIngredients ?? []).map((id) => (
-                        <button
-                          key={id}
-                          className="selected"
-                          aria-label={`Allow ${ingredientMap.get(id)?.name} again`}
-                          onClick={() =>
-                            toggleFilter("excludedIngredients", id)
-                          }
-                        >
-                          {ingredientMap.get(id)?.name}{" "}
-                          <Icon name="close" size={11} />
-                        </button>
-                      ))}
-                    </div>
-                    <input
-                      type="search"
-                      aria-label="Search for an ingredient to exclude"
-                      placeholder="Try Pilze, Oliven, Zwiebeln …"
-                      value={dislikeSearch}
-                      onChange={(event) => setDislikeSearch(event.target.value)}
-                    />
-                    <div className="allergen-options dislike-options">
-                      {dislikeOptions
-                        .filter(
-                          (ingredient) =>
-                            !(filters.excludedIngredients ?? []).includes(
-                              ingredient.id,
-                            ) &&
-                            (dislikeSearch
-                              ? ingredient.name
-                                  .toLocaleLowerCase("de")
-                                  .includes(
-                                    dislikeSearch.toLocaleLowerCase("de"),
-                                  )
-                              : [
-                                  "champignons",
-                                  "oliven",
-                                  "zwiebeln",
-                                  "knoblauch",
-                                  "fischfilet",
-                                  "garnelen",
-                                ].includes(ingredient.id)),
-                        )
-                        .slice(0, 10)
-                        .map((ingredient) => (
-                          <button
-                            key={ingredient.id}
-                            onClick={() =>
-                              toggleFilter("excludedIngredients", ingredient.id)
-                            }
-                          >
-                            <Icon name="plus" size={11} />
-                            {ingredient.name}
-                          </button>
-                        ))}
-                    </div>
-                    <p className="filter-help">
-                      Hide recipes containing these mapped ingredients.
-                      Ingredient mappings are still provisional.
-                    </p>
-                  </fieldset>
-                </div>
-                {filters.diet ||
-                filters.tags.length ||
-                filters.maxMinutes ||
-                filters.difficulty ||
-                filters.excludedAllergens.length ||
-                filters.excludedIngredients?.length ||
-                filters.maxIngredients ? (
-                  <button
-                    className="text-button"
-                    onClick={() => setFilters(initialFilters)}
-                  >
-                    Reset preferences
-                  </button>
-                ) : null}
-              </div>
-            ) : setupStep === "week" ? (
-              <div className="week-setup-screen">
-                <fieldset>
-                  <legend>Which days?</legend>
-                  <p>
-                    {scheduleDraft.days.length}{" "}
-                    {scheduleDraft.days.length === 1
-                      ? "cooking day"
-                      : "cooking days"}{" "}
-                    selected
-                  </p>
-                  <div className="weekday-options">
-                    {weekdays.map((name, index) => (
-                      <button
-                        key={name}
-                        className={
-                          scheduleDraft.days.includes(index as Weekday)
-                            ? "selected"
-                            : ""
-                        }
-                        aria-pressed={scheduleDraft.days.includes(
-                          index as Weekday,
-                        )}
-                        onClick={() =>
-                          setScheduleDraft((current) => ({
-                            ...current,
-                            days: current.days.includes(index as Weekday)
-                              ? current.days.filter((day) => day !== index)
-                              : [...current.days, index as Weekday].sort(),
-                          }))
-                        }
-                      >
-                        <span>{name.slice(0, 2)}</span>
-                        <small>{name}</small>
-                      </button>
-                    ))}
-                  </div>
-                </fieldset>
-                <fieldset>
-                  <legend>Which meals on these days?</legend>
-                  <div className="meal-options">
-                    {meals.map((meal) => (
-                      <button
-                        key={meal.id}
-                        className={`preference-card ${scheduleDraft.meals.includes(meal.id) ? "selected" : ""}`}
-                        aria-pressed={scheduleDraft.meals.includes(meal.id)}
-                        onClick={() =>
-                          setScheduleDraft((current) => ({
-                            ...current,
-                            meals: current.meals.includes(meal.id)
-                              ? current.meals.filter(
-                                  (value) => value !== meal.id,
-                                )
-                              : [...current.meals, meal.id],
-                          }))
-                        }
-                      >
-                        <span className="preference-art" aria-hidden="true">
-                          {meal.icon}
-                        </span>
-                        <strong>{meal.name}</strong>
-                      </button>
-                    ))}
-                  </div>
-                </fieldset>
-                <fieldset>
-                  <legend>How many portions per meal?</legend>
-                  <label className="schedule-portions">
-                    Portions{" "}
-                    <select
-                      aria-label="Portions per meal"
-                      value={scheduleDraft.portions}
-                      onChange={(event) =>
-                        setScheduleDraft((current) => ({
-                          ...current,
-                          portions: Number(event.target.value),
-                        }))
-                      }
-                    >
-                      {Array.from({ length: 12 }, (_, index) => (
-                        <option key={index + 1}>{index + 1}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <p>
-                    The starting amount for every meal. You can change
-                    individual portions in your weekly plan.
-                  </p>
-                </fieldset>
-                <p className="notice">
-                  {scheduleDraft.days.length * scheduleDraft.meals.length} meals
-                  · {scheduleDraft.portions} portions each. We use your
-                  preferences and choose a variety of recipes. If there is no
-                  matching suggestion, the meal stays unfilled.
-                  {journeyComplete
-                    ? " A new weekly plan replaces the meals currently planned."
+              {selected.nutritionMetadata && (
+                <p>
+                  {selected.nutritionMetadata.source}
+                  {selected.nutritionMetadata.note
+                    ? ` · ${selected.nutritionMetadata.note}`
                     : ""}
                 </p>
+              )}
+              <p>
+                Diet and allergen labels are provisional. Check every ingredient
+                for your needs.
+              </p>
+              {selected.source.basedOn && (
+                <p>
+                  Based on{" "}
+                  <button
+                    className="text-button"
+                    onClick={() =>
+                      void navigate({
+                        search: { recipe: selected.source.basedOn },
+                      })
+                    }
+                  >
+                    an earlier recipe
+                  </button>
+                  .
+                </p>
+              )}
+            </details>
+          </article>
+        ) : setupStep ? (
+          <>
+            <nav className="steps" aria-label="Plan setup">
+              <ol>
+                {setupSteps.map((step, index) => (
+                  <li
+                    key={step}
+                    className={
+                      setupStep === step
+                        ? "active"
+                        : index < setupSteps.indexOf(setupStep) ||
+                            editingSetup
+                          ? "complete"
+                          : ""
+                    }
+                  >
+                    <button
+                      aria-current={setupStep === step ? "step" : undefined}
+                      disabled={
+                        !editingSetup &&
+                        index > setupSteps.indexOf(setupStep)
+                      }
+                      onClick={() => {
+                        setSetupStep(step);
+                      }}
+                    >
+                      {stepTitles[step]}
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+            <div className="setup-layout">
+              <div className="setup-intro">
+                <h1 ref={heading} tabIndex={-1}>
+                  {stepHeadings[setupStep]}
+                </h1>
+                <p>{stepDescriptions[setupStep]}</p>
+                {previousSetup && (
+                  <p className="field-note">
+                    Your current week stays until you create a new one.
+                  </p>
+                )}
+                {setupStep !== "store" && (
+                  <p className="setup-context">
+                    Shopping at <strong>{storeName}</strong>
+                  </p>
+                )}
               </div>
-            ) : (
-              <div className="pantry-screen">
-                <div className="pantry-search-row">
-                  <p>Just the everyday basics. Choose what you have.</p>
-                  <span>{pantry.length} selected</span>
-                </div>
-                {pantry.length > 0 && (
-                  <div className="selected-pantry">
-                    <span>Already at home:</span>
-                    {pantry.map((id) => (
+              <section
+                className="setup-body"
+                aria-label={stepTitles[setupStep]}
+              >
+                {setupStep === "store" ? (
+                  <div
+                    className="choice-list"
+                    role="group"
+                    aria-label="Supermarket"
+                  >
+                    {stores.map((option) => (
                       <button
-                        key={id}
-                        onClick={() =>
-                          changePantry((current) =>
-                            current.filter((item) => item !== id),
-                          )
-                        }
-                        aria-label={`Remove ${ingredientMap.get(id)?.name} from pantry`}
+                        key={option.id}
+                        className={`choice ${store === option.id ? "selected" : ""}`}
+                        aria-pressed={store === option.id}
+                        onClick={() => setStore(option.id)}
                       >
-                        {ingredientMap.get(id)?.name}
-                        <Icon name="close" size={12} />
+                        <span className="choice-copy">{option.name}</span>
+                        <span className="choice-mark" aria-hidden="true">
+                          {""}
+                        </span>
                       </button>
                     ))}
                   </div>
-                )}
-                <div className="pantry-ingredient-grid">
-                  {pantryOptions.map((ingredient) => (
-                    <button
-                      key={ingredient.id}
-                      className={`pantry-ingredient ${pantry.includes(ingredient.id) ? "selected" : ""}`}
-                      aria-pressed={pantry.includes(ingredient.id)}
-                      onClick={() =>
-                        pantry.includes(ingredient.id)
-                          ? changePantry((current) =>
-                              current.filter((id) => id !== ingredient.id),
-                            )
-                          : addPantry(ingredient.id)
-                      }
+                ) : setupStep === "preferences" ? (
+                  <>
+                    <div
+                      className="choice-list"
+                      role="group"
+                      aria-label="Meal preferences"
                     >
-                      <span className="ingredient-symbol" aria-hidden="true">
-                        {/Gemüse|Obst/i.test(ingredient.category)
-                          ? "🥕"
-                          : /Milch|Kühl|Käse/i.test(ingredient.category)
-                            ? "🥛"
-                            : /Fleisch|Fisch/i.test(ingredient.category)
-                              ? "🍽️"
-                              : /Gewürz|Öl/i.test(ingredient.category)
-                                ? "🌿"
-                                : "🫙"}
-                      </span>
-                      <span>
-                        <strong>{ingredient.name}</strong>
-                        <small>{ingredient.category}</small>
-                      </span>
-                      <span className="selection-mark">
-                        {pantry.includes(ingredient.id) ? (
-                          <Icon name="check" size={12} />
-                        ) : (
-                          <Icon name="plus" size={12} />
-                        )}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <div className="pantry-bottom-note">
-                  <label className="check-option">
-                    <input
-                      type="checkbox"
-                      checked={filters.pantryOnly}
-                      onChange={(event) =>
-                        setFilter("pantryOnly", event.target.checked)
-                      }
-                    />
-                    <span>Only recipes I have all the ingredients for</span>
-                  </label>
-                  <p>
-                    Your choices are left off the shopping list. We track
-                    ingredients, not remaining quantities. Water is never on the
-                    list.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            <div className="journey-actions">
-              <button
-                className="back-button"
-                onClick={backSetup}
-                disabled={!journeyComplete && setupStep === "store"}
-              >
-                <span>←</span>
-                {journeyComplete ? "Back to overview" : "Back"}
-              </button>
-              <span className="journey-hint">
-                {setupStep === "store"
-                  ? "Store prices and availability are not supported yet."
-                  : setupStep === "preferences"
-                    ? `${matchingRecipes.length} recipes match your preferences`
-                    : setupStep === "week"
-                      ? `${scheduleDraft.days.length} days · ${scheduleDraft.days.length * scheduleDraft.meals.length} meals`
-                      : `${pantry.length} pantry ingredients · optional`}
-              </span>
-              <button
-                className="primary-button"
-                disabled={
-                  !store ||
-                  (setupStep === "week" &&
-                    (!scheduleDraft.days.length ||
-                      !scheduleDraft.meals.length)) ||
-                  (setupStep === "pantry" &&
-                    (!schedule.days.length || !schedule.meals.length))
-                }
-                onClick={finishSetup}
-              >
-                {journeyComplete
-                  ? setupStep === "week"
-                    ? "Create weekly plan"
-                    : "Save changes"
-                  : setupStep === "pantry"
-                    ? "Create weekly plan"
-                    : "Continue"}
-                <Icon name="arrow" size={17} />
-              </button>
-            </div>
-          </section>
-        ) : (
-          <>
-            <section className="workspace-heading">
-              <div>
-                <p className="eyebrow">
-                  {tab === "recipes"
-                    ? "YOUR RECIPES FOR THE WEEK"
-                    : "YOUR WEEK, A LITTLE EASIER"}
-                </p>
-                <h1>
-                  {tab === "recipes" ? (
-                    <>
-                      Good food <em>starts here.</em>
-                    </>
-                  ) : tab === "plan" ? (
-                    <>
-                      Your week. <em>Your preferences.</em>
-                    </>
-                  ) : (
-                    <>
-                      Everything on <em>one list.</em>
-                    </>
-                  )}
-                </h1>
-              </div>
-              <div className="workspace-summary">
-                <button onClick={() => setSetupStep("store")}>
-                  <Icon name="bag" size={14} />
-                  {selectedStore?.name ?? "Supermarket"}
-                  <span>edit</span>
-                </button>
-                <button onClick={() => setSetupStep("preferences")}>
-                  <Icon name="leaf" size={14} />
-                  {[
-                    labels[filters.diet],
-                    ...filters.tags.map((tag) => labels[tag]),
-                    filters.maxMinutes ? `≤ ${filters.maxMinutes} min` : "",
-                    filters.difficulty ? labels[filters.difficulty] : "",
-                    filters.excludedAllergens.length
-                      ? `${filters.excludedAllergens.length} excluded`
-                      : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" · ") || "All kinds of good food"}
-                  <span>edit</span>
-                </button>
-                <button onClick={() => setSetupStep("pantry")}>
-                  <Icon name="check" size={14} />
-                  {pantry.length} ingredients at home<span>edit</span>
-                </button>
-                <button onClick={editWeek}>
-                  <Icon name="book" size={14} />
-                  {schedule.days.length} days · {schedule.meals.length} meals ·{" "}
-                  {schedule.portions} portions<span>edit</span>
-                </button>
-              </div>
-            </section>
-            {tab === "recipes" ? (
-              <div className="catalog-layout compact-catalog">
-                <section className="recipe-results" aria-label="Recipes">
-                  <form className="catalog-toolbar" onSubmit={generate}>
-                    <label className="search-field">
-                      <Icon name="plus" />
-                      <input
-                        value={dishWish}
-                        maxLength={200}
-                        onChange={(event) => setDishWish(event.target.value)}
-                        placeholder="What do you feel like? e.g. high-protein chicken curry"
-                        aria-label="Describe a dish to generate"
-                        disabled={generating}
-                      />
-                    </label>
-                    <button
-                      className="primary-button"
-                      disabled={generating || !dishWish.trim()}
-                    >
-                      {generating ? "Generating …" : "Generate recipe"}
-                    </button>
-                  </form>
-                  {generateError && (
-                    <p className="notice" role="alert">
-                      {generateError}
-                    </p>
-                  )}
-                  <div className="catalog-toolbar">
-                    <label className="search-field">
-                      <Icon name="search" />
-                      <input
-                        type="search"
-                        placeholder="Search a recipe or ingredient …"
-                        value={filters.search}
-                        onChange={(event) =>
-                          setFilter("search", event.target.value)
-                        }
-                        aria-label="Search recipes or ingredients"
-                      />
-                      {filters.search && (
-                        <button
-                          onClick={() => setFilter("search", "")}
-                          aria-label="Clear search"
-                        >
-                          <Icon name="close" size={16} />
-                        </button>
-                      )}
-                    </label>
-                    <label className="sort-select">
-                      <span className="sr-only">Sort recipes</span>
-                      <select
-                        value={sort}
-                        onChange={(event) => setSort(event.target.value)}
-                      >
-                        <option value="name">Alphabetically</option>
-                        <option value="pantry">
-                          Fewest missing ingredients
-                        </option>
-                      </select>
-                    </label>
-                  </div>
-                  <div
-                    className="discovery-meals"
-                    aria-label="Filter recipes by meal"
-                  >
-                    {[{ id: "", name: "All meals", icon: "" }, ...meals].map(
-                      (meal) => (
-                        <button
-                          key={meal.id}
-                          className={
-                            discoveryMeal === meal.id ? "selected" : ""
-                          }
-                          aria-pressed={discoveryMeal === meal.id}
-                          onClick={() =>
-                            setDiscoveryMeal(meal.id as MealType | "")
-                          }
-                        >
-                          {meal.icon && (
-                            <span aria-hidden="true">{meal.icon}</span>
-                          )}
-                          {meal.name}
-                        </button>
-                      ),
-                    )}
-                  </div>
-                  <div className="results-meta">
-                    <p>
-                      <strong>{visible.length}</strong>{" "}
-                      {visible.length === 1 ? "recipe" : "recipes"} for you
-                    </p>
-                    <label className="default-portions">
-                      I am cooking for{" "}
-                      <select
-                        aria-label="Default portions"
-                        value={portions}
-                        onChange={(event) =>
-                          setPortions(Number(event.target.value))
-                        }
-                      >
-                        {Array.from({ length: 12 }, (_, i) => (
-                          <option key={i + 1} value={i + 1}>
-                            {i + 1}
-                          </option>
-                        ))}
-                      </select>{" "}
-                      people
-                    </label>
-                  </div>
-                  <div className="recipe-grid">
-                    {visible.map((recipe) => {
-                      const inPlan = plan.some(
-                        (item) => item.recipeId === recipe.id,
-                      );
-                      return (
-                        <article className="recipe-card" key={recipe.id}>
+                      {[
+                        "one-pot",
+                        "protein-source",
+                        "keto",
+                        "low-calorie",
+                        "meal-prep",
+                      ]
+                        .filter((tag) => tagOptions.includes(tag))
+                        .map((tag) => (
                           <button
-                            className="recipe-visual"
-                            onClick={() => openRecipe(recipe)}
-                            aria-label={`Open ${recipe.title}`}
+                            key={tag}
+                            className={`choice ${filters.tags.includes(tag) ? "selected" : ""}`}
+                            aria-pressed={filters.tags.includes(tag)}
+                            onClick={() => toggleFilter("tags", tag)}
                           >
-                            <DishArt recipe={recipe} />
-                            <span className={`diet-badge ${recipe.diet}`}>
-                              {recipe.diet === "vegan"
-                                ? "Plant-based"
-                                : recipe.diet === "vegetarian"
-                                  ? "Vegetarian"
-                                  : recipe.diet === "mixed"
-                                    ? "Meat / fish"
-                                    : "Discover recipe"}
+                            <span className="choice-copy">
+                              <strong>{labels[tag]}</strong>
+                              <small>{preferenceNotes[tag]}</small>
+                            </span>
+                            <span className="choice-mark" aria-hidden="true">
+                              {filters.tags.includes(tag) ? "" : "+"}
                             </span>
                           </button>
-                          <div className="card-body">
-                            <div className="card-meta">
-                              <span>
-                                <Icon name="clock" size={14} />
-                                {recipe.minutes
-                                  ? `${recipe.minutes} min`
-                                  : "Time unknown"}
-                              </span>
-                              <span>·</span>
-                              <span>{labels[recipe.difficulty]}</span>
-                            </div>
-                            <button
-                              className="card-title"
-                              onClick={() => openRecipe(recipe)}
-                            >
-                              <h3>{recipe.title}</h3>
-                            </button>
-                            <p className="card-description">
-                              {recipe.ingredients
-                                .slice(0, 3)
-                                .map((ingredient) => ingredient.name)
-                                .join(" · ")}
-                            </p>
-                            <RecipeMacros recipe={recipe} />
-                            <div className="card-footer">
-                              <span>
-                                {pantry.length
-                                  ? `${missing(recipe)} ingredients missing`
-                                  : `${countIngredients(recipe)} ingredients`}
-                              </span>
-                              <button
-                                className={`add-recipe ${inPlan ? "added" : ""}`}
-                                onClick={() =>
-                                  inPlan
-                                    ? openRecipe(recipe)
-                                    : addToPlan(recipe)
-                                }
-                                aria-label={
-                                  inPlan
-                                    ? `View ${recipe.title} in your plan`
-                                    : `Add ${recipe.title} to your meal plan`
-                                }
-                              >
-                                <Icon
-                                  name={inPlan ? "check" : "plus"}
-                                  size={18}
-                                />
-                                {inPlan ? "In your plan" : "Add to plan"}
-                              </button>
-                            </div>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                  {!visible.length && (
-                    <div className="empty-state">
-                      <span>⌕</span>
-                      <h2>
-                        {recipes.length
-                          ? "Nothing that suits you yet?"
-                          : "No recipes yet"}
-                      </h2>
-                      <p>
-                        {recipes.length
-                          ? "Try fewer filters or a different ingredient."
-                          : "Describe a dish above to generate your first recipe."}
-                      </p>
-                      {recipes.length > 0 && (
-                      <button
-                        className="primary-button"
-                        onClick={() => {
-                          setFilters(initialFilters);
-                          setDiscoveryMeal("");
-                        }}
-                      >
-                        Show all recipes
-                      </button>
-                      )}
+                        ))}
                     </div>
-                  )}
-                  <p className="catalog-footnote">
-                    <Icon name="book" size={15} />
-                    AI-generated recipes, standardized for your kitchen.
-                    Nutrition details are on each recipe page.
-                  </p>
-                </section>
-              </div>
-            ) : tab === "plan" ? (
-              <section className="plan-section">
-                <div className="section-toolbar">
-                  <h2>
-                    This week{" "}
-                    <span>
-                      {plan.length} meals · {unfilledSlots.length} unfilled
-                    </span>
-                  </h2>
-                  <button
-                    className="primary-button"
-                    onClick={() => setTab(plan.length ? "shopping" : "recipes")}
-                  >
-                    {plan.length ? "View shopping list" : "Discover recipes"}
-                    <Icon name="arrow" size={17} />
-                  </button>
-                </div>
-                <div className="week-plan-toolbar">
-                  <p>
-                    {schedule.days.length} cooking days ·{" "}
-                    {schedule.meals
-                      .map((id) => meals.find((meal) => meal.id === id)?.name)
-                      .join(", ")}{" "}
-                    · starting at {schedule.portions} portions per meal
-                  </p>
-                  <button className="text-button" onClick={editWeek}>
-                    Edit days, meals & portions
-                  </button>
-                </div>
-                {planMessage && (
-                  <p className="notice" role="status">
-                    {planMessage}
-                  </p>
-                )}
-                {plan.length || unfilledSlots.length ? (
-                  <div className="plan-grid">
-                    {[...plan]
-                      .sort(
-                        (a, b) =>
-                          (a.day ?? 7) - (b.day ?? 7) ||
-                          meals.findIndex((meal) => meal.id === a.meal) -
-                            meals.findIndex((meal) => meal.id === b.meal),
-                      )
-                      .map((item) => {
-                        const recipe = recipes.find(
-                          (recipe) => recipe.id === item.recipeId,
-                        )!;
-                        return (
-                          <article
-                            className="plan-card"
-                            key={planItemKey(item)}
-                          >
+                    <details
+                      className="disclosure"
+                      open={
+                        filters.diet !== "" ||
+                        filters.excludedAllergens.length > 0 ||
+                        !!filters.excludedIngredients?.length ||
+                        undefined
+                      }
+                    >
+                      <summary>Diet & ingredients to avoid</summary>
+                      <fieldset className="field-group">
+                        <legend>Diet</legend>
+                        <div className="chip-row">
+                          {["", "vegetarian", "vegan", "mixed"].map((diet) => (
                             <button
-                              className="plan-image"
-                              onClick={() => openRecipe(recipe, item)}
-                              aria-label={`Open ${recipe.title}`}
+                              key={diet}
+                              className={`chip ${filters.diet === diet ? "selected" : ""}`}
+                              aria-pressed={filters.diet === diet}
+                              onClick={() => setFilter("diet", diet)}
                             >
-                              <DishArt recipe={recipe} small />
+                              {diet ? labels[diet] : "Anything"}
                             </button>
-                            <div className="plan-card-content">
-                              <p className="eyebrow">
-                                {item.day !== undefined
-                                  ? `${weekdays[item.day]} · ${meals.find((meal) => meal.id === item.meal)?.name}`
-                                  : "Extra meal, no set day"}
-                              </p>
-                              <button
-                                className="card-title"
-                                onClick={() => openRecipe(recipe, item)}
-                              >
-                                <h3>{recipe.title}</h3>
-                              </button>
-                              <p>
-                                {recipe.minutes
-                                  ? `${recipe.minutes} min · `
-                                  : ""}
-                                {countIngredients(recipe)} ingredients
-                                {recipe.servings === null
-                                  ? " · serving count supplied by you"
-                                  : ""}
-                              </p>
-                              <div className="plan-controls">
-                                <label>
-                                  Portions{" "}
-                                  <select
-                                    aria-label={`Portions for ${item.day !== undefined ? `${weekdays[item.day]} ${meals.find((meal) => meal.id === item.meal)?.name}` : recipe.title}`}
-                                    value={item.portions}
-                                    onChange={(event) =>
-                                      changePortions(
-                                        planItemKey(item),
-                                        Number(event.target.value),
-                                      )
-                                    }
-                                  >
-                                    {Array.from({ length: 12 }, (_, i) => (
-                                      <option key={i + 1}>{i + 1}</option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <button
-                                  className="text-button"
-                                  onClick={() =>
-                                    changePlan((current) =>
-                                      current.filter(
-                                        (entry) =>
-                                          planItemKey(entry) !==
-                                          planItemKey(item),
-                                      ),
-                                    )
-                                  }
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                              {item.day !== undefined && (
-                                <label className="swap-recipe">
-                                  Swap recipe
-                                  <select
-                                    aria-label={`Recipe for ${weekdays[item.day]} ${meals.find((meal) => meal.id === item.meal)?.name}`}
-                                    value={item.recipeId}
-                                    onChange={(event) =>
-                                      changePlan((current) =>
-                                        current.map((entry) =>
-                                          planItemKey(entry) ===
-                                          planItemKey(item)
-                                            ? {
-                                                recipeId: event.target.value,
-                                                day: item.day,
-                                                meal: item.meal,
-                                                portions: item.portions,
-                                              }
-                                            : entry,
-                                        ),
-                                      )
-                                    }
-                                  >
-                                    <option value={recipe.id}>
-                                      {recipe.title}
-                                    </option>
-                                    {matchingRecipes
-                                      .filter(
-                                        (candidate) =>
-                                          candidate.id !== recipe.id &&
-                                          candidate.servings !== null &&
-                                          (
-                                            candidate.mealTypes ?? [
-                                              "lunch",
-                                              "dinner",
-                                            ]
-                                          ).includes(item.meal!),
-                                      )
-                                      .map((candidate) => (
-                                        <option
-                                          key={candidate.id}
-                                          value={candidate.id}
-                                        >
-                                          {candidate.title}
-                                        </option>
-                                      ))}
-                                  </select>
-                                </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                      <fieldset className="field-group">
+                        <legend>Allergens to avoid</legend>
+                        <div className="chip-row">
+                          {allergenOptions.map((allergen) => (
+                            <button
+                              key={allergen}
+                              className={`chip ${filters.excludedAllergens.includes(allergen) ? "selected" : ""}`}
+                              aria-pressed={filters.excludedAllergens.includes(
+                                allergen,
                               )}
-                            </div>
-                          </article>
-                        );
-                      })}
-                    {unfilledSlots.map((slot) => (
-                      <article
-                        className="unfilled-meal"
-                        key={`${slot.day}-${slot.meal}`}
-                      >
-                        <p className="eyebrow">
-                          {weekdays[slot.day]} ·{" "}
-                          {meals.find((meal) => meal.id === slot.meal)?.name}
+                              onClick={() =>
+                                toggleFilter("excludedAllergens", allergen)
+                              }
+                            >
+                              {allergenLabels[allergen] ?? allergen}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="field-note">
+                          AI labels aren’t verified. Always check the
+                          ingredients.
                         </p>
-                        <h3>Still unfilled</h3>
-                        <p>
-                          No matching recipe with a known serving count. Adjust
-                          your preferences or choose a recipe yourself.
-                        </p>
-                        <select
-                          aria-label={`Unfilled recipe for ${weekdays[slot.day]} ${meals.find((meal) => meal.id === slot.meal)?.name}`}
-                          value=""
-                          onChange={(event) => {
-                            const recipe = recipes.find(
-                              (recipe) => recipe.id === event.target.value,
-                            );
-                            if (recipe)
-                              void navigate({
-                                search: {
-                                  recipe: recipe.id,
-                                  slot: `${slot.day}-${slot.meal}`,
-                                },
-                              });
-                          }}
-                        >
-                          <option value="">Choose a recipe …</option>
-                          {matchingRecipes
-                            .filter((candidate) =>
-                              (
-                                candidate.mealTypes ?? ["lunch", "dinner"]
-                              ).includes(slot.meal),
+                      </fieldset>
+                      <fieldset className="field-group">
+                        <legend>Ingredients to avoid</legend>
+                        <input
+                          type="search"
+                          aria-label="Find ingredients to avoid"
+                          placeholder="Search ingredients"
+                          value={dislikeSearch}
+                          onChange={(event) =>
+                            setDislikeSearch(event.target.value)
+                          }
+                        />
+                        <div className="chip-row">
+                          {dislikeOptions
+                            .filter((item) =>
+                              dislikeSearch
+                                ? item.name
+                                    .toLocaleLowerCase("de")
+                                    .includes(
+                                      dislikeSearch.toLocaleLowerCase("de"),
+                                    )
+                                : commonDislikes.includes(item.name) ||
+                                  filters.excludedIngredients?.includes(
+                                    item.id,
+                                  ),
                             )
-                            .map((candidate) => (
-                              <option key={candidate.id} value={candidate.id}>
-                                {candidate.title}
-                                {candidate.servings === null
-                                  ? " · serving count unknown"
-                                  : ""}
-                              </option>
+                            .map((item) => (
+                              <button
+                                key={item.id}
+                                className={`chip ${filters.excludedIngredients?.includes(item.id) ? "selected" : ""}`}
+                                aria-pressed={
+                                  filters.excludedIngredients?.includes(
+                                    item.id,
+                                  ) ?? false
+                                }
+                                onClick={() =>
+                                  toggleFilter("excludedIngredients", item.id)
+                                }
+                              >
+                                {item.name}
+                              </button>
                             ))}
-                        </select>
-                        <button
-                          className="text-button"
-                          onClick={() => setSetupStep("preferences")}
-                        >
-                          Edit preferences
-                        </button>
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="empty-state">
-                    <Icon name="leaf" size={44} />
-                    <h2>Your next good meal starts here.</h2>
-                    <p>
-                      Choose a few recipes. We will combine their ingredients
-                      into one shopping list.
+                        </div>
+                      </fieldset>
+                    </details>
+                  </>
+                ) : setupStep === "pantry" ? (
+                  <>
+                    <label className="pantry-search">
+                      <span className="sr-only">Find pantry ingredients</span>
+                      <input
+                        type="search"
+                        placeholder="Find an ingredient"
+                        value={pantrySearch}
+                        onChange={(event) =>
+                          setPantrySearch(event.target.value)
+                        }
+                      />
+                    </label>
+                    <p className="selection-count">
+                      {pantry.length
+                        ? `${pantry.length} selected`
+                        : "Optional — skip if you’re not sure."}
                     </p>
-                  </div>
+                    {[
+                      ...new Set(pantryVisible.map((item) => item.category)),
+                    ].map((category) => (
+                      <fieldset className="pantry-group" key={category}>
+                        <legend>{category}</legend>
+                        <div className="pantry-options">
+                          {pantryVisible
+                            .filter((item) => item.category === category)
+                            .map((item) => (
+                              <button
+                                key={item.id}
+                                className={`pantry-choice ${pantry.includes(item.id) ? "selected" : ""}`}
+                                aria-pressed={pantry.includes(item.id)}
+                                onClick={() => togglePantry(item.id)}
+                              >
+                                <span
+                                  className="choice-mark"
+                                  aria-hidden="true"
+                                >
+                                  {pantry.includes(item.id) ? "" : "+"}
+                                </span>
+                                {item.name}
+                              </button>
+                            ))}
+                        </div>
+                      </fieldset>
+                    ))}
+                    {!pantryVisible.length && (
+                      <p className="muted">
+                        No matching ingredient in your recipes.
+                      </p>
+                    )}
+                    <p className="field-note">
+                      Select only what you have enough of. Pantry tracks
+                      ingredients, not amounts.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <fieldset className="field-group">
+                      <legend>Servings per meal</legend>
+                      <div className="portions-control">
+                        <button
+                          className="button secondary"
+                          aria-label="Fewer servings"
+                          disabled={scheduleDraft.portions <= 1}
+                          onClick={() =>
+                            setScheduleDraft((current) => ({
+                              ...current,
+                              portions: current.portions - 1,
+                            }))
+                          }
+                        >
+                          −
+                        </button>
+                        <output aria-live="polite">
+                          {scheduleDraft.portions}
+                        </output>
+                        <button
+                          className="button secondary"
+                          aria-label="More servings"
+                          disabled={scheduleDraft.portions >= 12}
+                          onClick={() =>
+                            setScheduleDraft((current) => ({
+                              ...current,
+                              portions: current.portions + 1,
+                            }))
+                          }
+                        >
+                          +
+                        </button>
+                      </div>
+                      <p className="field-note">
+                        Each selected meal makes{" "}
+                        {plural(scheduleDraft.portions, "serving")}.
+                      </p>
+                    </fieldset>
+                    <fieldset className="field-group">
+                      <legend>Meals</legend>
+                      <div className="chip-row">
+                        {meals.map((meal) => (
+                          <button
+                            key={meal.id}
+                            className={`chip ${scheduleDraft.meals.includes(meal.id) ? "selected" : ""}`}
+                            aria-pressed={scheduleDraft.meals.includes(meal.id)}
+                            onClick={() =>
+                              setScheduleDraft((current) => ({
+                                ...current,
+                                meals: current.meals.includes(meal.id)
+                                  ? current.meals.filter((id) => id !== meal.id)
+                                  : [...current.meals, meal.id],
+                              }))
+                            }
+                          >
+                            {meal.name}
+                          </button>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <fieldset className="field-group">
+                      <legend>Days</legend>
+                      <div className="day-heading">
+                        <div className="chip-row">
+                          <button
+                            className="text-button"
+                            onClick={() =>
+                              setScheduleDraft((current) => ({
+                                ...current,
+                                days: [0, 1, 2, 3, 4],
+                              }))
+                            }
+                          >
+                            Weekdays
+                          </button>
+                          <button
+                            className="text-button"
+                            onClick={() =>
+                              setScheduleDraft((current) => ({
+                                ...current,
+                                days: [0, 1, 2, 3, 4, 5, 6],
+                              }))
+                            }
+                          >
+                            Every day
+                          </button>
+                        </div>
+                      </div>
+                      <div className="schedule-days">
+                        {weekdays.map((day, index) => (
+                          <button
+                            key={day}
+                            className={`chip ${scheduleDraft.days.includes(index as Weekday) ? "selected" : ""}`}
+                            aria-label={day}
+                            aria-pressed={scheduleDraft.days.includes(
+                              index as Weekday,
+                            )}
+                            onClick={() =>
+                              setScheduleDraft((current) => ({
+                                ...current,
+                                days: current.days.includes(index as Weekday)
+                                  ? current.days.filter(
+                                      (value) => value !== index,
+                                    )
+                                  : [...current.days, index as Weekday],
+                              }))
+                            }
+                          >
+                            {day.slice(0, 3)}
+                          </button>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <p className="schedule-summary">
+                      {plural(
+                        scheduleDraft.days.length * scheduleDraft.meals.length,
+                        "meal",
+                      )}{" "}
+                      · {plural(scheduleDraft.portions, "serving")} each
+                    </p>
+                    {!chatGPTAccount && (
+                      <p className="field-note">
+                        Using your saved recipes. Connect ChatGPT in the
+                        installation setup to create new ones.
+                      </p>
+                    )}
+                    {journeyComplete && (
+                      <p className="field-note">
+                        Creating a new week replaces the meals in your current
+                        plan.
+                      </p>
+                    )}
+                  </>
+                )}
+                <div className="setup-footer">
+                  <button
+                    className="text-button"
+                    onClick={backSetup}
+                    disabled={!journeyComplete && setupStep === "store"}
+                  >
+                    {(editingSetup && setupStep === "week") ||
+                    (previousSetup && setupStep === "store")
+                      ? "Cancel"
+                      : "Back"}
+                  </button>
+                  <button
+                    className="button primary"
+                    disabled={!canContinue}
+                    onClick={finishSetup}
+                  >
+                    {setupStep === "week"
+                      ? journeyComplete
+                        ? "Create new week"
+                        : "Create my week"
+                      : editingSetup
+                        ? "Done"
+                        : setupStep === "pantry" && !pantry.length
+                          ? "Skip pantry →"
+                          : "Continue →"}
+                  </button>
+                </div>
+              </section>
+            </div>
+          </>
+        ) : tab === "plan" ? (
+          <>
+            <div className="workspace-heading">
+              <div>
+                <h1 ref={heading} tabIndex={-1}>
+                  {filledMeals > 0 && filledMeals === weekSlots.length
+                    ? "Your week, sorted."
+                    : "Your week"}
+                </h1>
+                <p className="summary-line">
+                  {plural(filledMeals, "meal")} planned · Shopping at{" "}
+                  {storeName}
+                </p>
+              </div>
+              <button
+                className="button primary"
+                onClick={() => showTab("shopping")}
+              >
+                Shopping list →
+              </button>
+            </div>
+            <div className="week-redo" aria-label="Redo your week">
+              <div>
+                <button
+                  className="button secondary"
+                  disabled={!!run || !weekSlots.length}
+                  onClick={() => makeWeeklyPlan(schedule)}
+                  aria-describedby="regenerate-description"
+                >
+                  Regenerate week
+                </button>
+                <p id="regenerate-description">Keep your current choices.</p>
+              </div>
+              <div>
+                <button
+                  className="text-button"
+                  disabled={!!run}
+                  onClick={startOver}
+                  aria-describedby="restart-description"
+                >
+                  Start over
+                </button>
+                <p id="restart-description">Choose everything again.</p>
+              </div>
+            </div>
+            {run && (
+              <section
+                className="progress-panel"
+                aria-label="Creating your week"
+              >
+                <div className="day-heading">
+                  <p role="status">
+                    {run.stopping
+                      ? "Finishing current recipes…"
+                      : run.dishes.length
+                        ? `${runReady} of ${run.dishes.length} meals ready`
+                        : "Planning your menu…"}
+                  </p>
+                  <button
+                    className="text-button"
+                    onClick={stopRun}
+                    disabled={run.stopping}
+                  >
+                    Stop
+                  </button>
+                </div>
+                {!!run.dishes.length && (
+                  <progress
+                    aria-label="Recipes ready"
+                    value={runReady}
+                    max={run.dishes.length}
+                  />
                 )}
               </section>
-            ) : (
-              <section className="shopping-section">
-                <div className="section-toolbar">
-                  <h2>
-                    Your shopping{" "}
-                    <span>
-                      {remaining} of {shopping.length} remaining
-                    </span>
-                  </h2>
-                  {shopping.length > 0 && (
-                    <button className="primary-button" onClick={copyList}>
-                      <Icon name={copied ? "check" : "copy"} size={17} />
-                      {copied ? "List copied" : "Copy list"}
+            )}
+            {planMessage && (
+              <div className="notice" role="status">
+                <p>{planMessage}</p>
+                {generationError && !run && (
+                  <div className="chip-row">
+                    <button
+                      className="button secondary"
+                      onClick={() => makeWeeklyPlan(scheduleDraft)}
+                    >
+                      Try again
                     </button>
-                  )}
+                    {recipes.length > 0 && (
+                      <button
+                        className="text-button"
+                        onClick={() => useSavedWeek(scheduleDraft)}
+                      >
+                        Use saved recipes
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="week-layout">
+              <div className="week-days">
+                {[...schedule.days].sort().map((day) => (
+                  <section className="day-group" key={day}>
+                    <h2>{weekdays[day]}</h2>
+                    {meals
+                      .filter((meal) => schedule.meals.includes(meal.id))
+                      .map((meal) =>
+                        renderMeal(
+                          plan.find(
+                            (item) => item.day === day && item.meal === meal.id,
+                          ),
+                          day,
+                          meal.id,
+                        ),
+                      )}
+                  </section>
+                ))}
+                {plan.some((item) => item.day === undefined) && (
+                  <section className="day-group">
+                    <h2>Extra meals</h2>
+                    {plan
+                      .filter((item) => item.day === undefined)
+                      .map((item) => renderMeal(item))}
+                  </section>
+                )}
+                {!weekSlots.length && !plan.length && (
+                  <div className="empty-state">
+                    <h2>A week that works for you</h2>
+                    <p>Choose your days and meals to get started.</p>
+                    <button className="button secondary" onClick={editWeek}>
+                      Plan your week
+                    </button>
+                  </div>
+                )}
+              </div>
+              <aside className="week-summary" aria-label="Your plan choices">
+                <h2>Made for your week</h2>
+                <div className="summary-item">
+                  <span>Supermarket</span>
+                  <button
+                    className="text-button"
+                    disabled={!!run}
+                    onClick={() => setSetupStep("store")}
+                  >
+                    {storeName} <span aria-hidden="true">↗</span>
+                  </button>
                 </div>
-                <div className="shopping-layout">
-                  <div>
-                    {groups.map((group) => (
-                      <section className="shopping-group" key={group}>
-                        <h3>
-                          {group}
-                          <span>
-                            {
-                              shopping.filter((item) => item.category === group)
-                                .length
-                            }
-                          </span>
-                        </h3>
-                        {shopping
-                          .filter((item) => item.category === group)
-                          .map((item) => (
+                <div className="summary-item">
+                  <span>Preferences</span>
+                  <p>{summaryPreferences}</p>
+                  <button
+                    className="text-button"
+                    disabled={!!run}
+                    onClick={() => setSetupStep("preferences")}
+                  >
+                    Edit preferences
+                  </button>
+                </div>
+                <div className="summary-item">
+                  <span>At home</span>
+                  <p>
+                    {pantry.length
+                      ? pantry.slice(0, 4).map(nameOf).join(", ") +
+                        (pantry.length > 4 ? ` +${pantry.length - 4}` : "")
+                      : "Nothing selected"}
+                  </p>
+                  <button
+                    className="text-button"
+                    disabled={!!run}
+                    onClick={() => setSetupStep("pantry")}
+                  >
+                    Edit pantry
+                  </button>
+                </div>
+                <p className="field-note">
+                  Recipes are AI-generated and untested. Nutrition is estimated
+                  per serving.
+                </p>
+              </aside>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="workspace-heading">
+              <div>
+                <h1 ref={heading} tabIndex={-1}>
+                  Your shopping list
+                </h1>
+                <p className="summary-line">
+                  {storeName} · {remaining} of {shopping.length} left to get
+                </p>
+              </div>
+              {shopping.length > 0 && (
+                <button className="button primary" onClick={copyList}>
+                  {copied ? "Copied" : "Copy list"}
+                </button>
+              )}
+            </div>
+            <div className="shopping-layout">
+              <div className="shopping-list">
+                {groups.map((group) => (
+                  <section className="shopping-group" key={group}>
+                    <h2>{group}</h2>
+                    {shopping
+                      .filter((item) => item.category === group)
+                      .map((item) => {
+                        const line = showProducts
+                          ? productLines.get(item.id)
+                          : undefined;
+                        const suitable = suitableProducts(item) ?? [];
+                        const choice = productChoices[choiceKey(item)];
+                        return (
+                          <Fragment key={item.id}>
                             <label
-                              key={item.id}
-                              className={`shopping-row ${checked.includes(item.id) ? "purchased" : ""}`}
+                              className={`shopping-row ${checked.includes(item.id) ? "is-checked" : ""}`}
                             >
                               <input
                                 type="checkbox"
                                 checked={checked.includes(item.id)}
-                                onChange={() =>
+                                onChange={() => {
+                                  setCopied(false);
                                   setChecked((current) =>
                                     current.includes(item.id)
                                       ? current.filter((id) => id !== item.id)
                                       : [...current, item.id],
-                                  )
-                                }
+                                  );
+                                }}
                               />
-                              <span className="shopping-item-name">
-                                <strong>{item.name}</strong>
-                                <small>
-                                  {item.recipes.join(" · ")}
-                                  {item.note ? ` · ${item.note}` : ""}
-                                </small>
+                              <span className="shopping-name">
+                                {item.name}
+                                {item.note && <small>{item.note}</small>}
                               </span>
-                              <span
-                                className={
-                                  item.unresolved
-                                    ? "amount unresolved"
-                                    : "amount"
-                                }
-                              >
+                              <span className="shopping-amount">
                                 {formatAmount(item.amount, item.unit)}
                                 {item.unresolved && (
                                   <small>Check quantity</small>
                                 )}
                               </span>
                             </label>
-                          ))}
-                      </section>
-                    ))}
-                    {!shopping.length && (
-                      <div className="empty-state">
-                        <Icon name="bag" size={44} />
-                        <h2>
-                          {plan.length
-                            ? "Everything is already at home."
-                            : "One plan, one shop."}
-                        </h2>
-                        <p>
-                          {plan.length
-                            ? "Your recipes use ingredients you have at home."
-                            : "Add some recipes to your meal plan first."}
-                        </p>
-                        <button
-                          className="primary-button"
-                          onClick={() => showTab("recipes")}
-                        >
-                          Browse recipes
-                          <Icon name="arrow" size={17} />
-                        </button>
-                      </div>
-                    )}
+                            {line && (
+                              <div className="shopping-product">
+                                <span>
+                                  {line.packs !== null && `${line.packs} × `}
+                                  {line.product.url ? (
+                                    <a
+                                      href={line.product.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      {line.product.name}
+                                    </a>
+                                  ) : (
+                                    line.product.name
+                                  )}
+                                  <small>
+                                    {packDetails(line.product)}
+                                    {line.check && " · Check amount"}
+                                  </small>
+                                </span>
+                                {line.cost !== null && (
+                                  <span className="shopping-amount">
+                                    {isLowerBound(line, item.category) &&
+                                      "from "}
+                                    {euro.format(line.cost)}
+                                  </span>
+                                )}
+                                {suitable.length > 1 && (
+                                  <select
+                                    aria-label={`Product for ${item.name}`}
+                                    value={
+                                      suitable.some(
+                                        (product) => product.id === choice,
+                                      )
+                                        ? choice
+                                        : ""
+                                    }
+                                    onChange={(event) => {
+                                      setCopied(false);
+                                      setProductChoices(
+                                        ({ [choiceKey(item)]: _, ...rest }) =>
+                                          event.target.value
+                                            ? {
+                                                ...rest,
+                                                [choiceKey(item)]:
+                                                  event.target.value,
+                                              }
+                                            : rest,
+                                      );
+                                    }}
+                                  >
+                                    <option value="">
+                                      Auto:{" "}
+                                      {pickRuleLabels[pickRule].toLowerCase()}
+                                    </option>
+                                    {suitable.map((product) => (
+                                      <option
+                                        key={product.id}
+                                        value={product.id}
+                                      >
+                                        {product.name} · {packDetails(product)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                              </div>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                  </section>
+                ))}
+                {!shopping.length && (
+                  <div className="empty-state">
+                    <h2>
+                      {plan.length
+                        ? "You’re stocked up."
+                        : "Plan first, shop once."}
+                    </h2>
+                    <p>
+                      {plan.length
+                        ? "Your selected pantry covers this list. Check you have enough before cooking."
+                        : "Create your week to get a combined shopping list."}
+                    </p>
+                    <button
+                      className="button secondary"
+                      onClick={() => showTab("plan")}
+                    >
+                      Back to your week
+                    </button>
                   </div>
-                  <aside className="shopping-note">
-                    <span className="note-icon">
-                      <Icon name="leaf" size={26} />
-                    </span>
-                    <h3>
-                      A little less waste.
-                      <br />A little more ease.
-                    </h3>
-                    <p>
-                      Shared ingredients are added together. Anything already in
-                      your pantry is left off the list.
-                    </p>
-                    <hr />
-                    <p>
-                      <strong>Shopping quantities</strong>
-                      <br />
-                      Missing amounts stay visible and are not estimated. Store
-                      prices are not available yet.
-                    </p>
-                    <p className="filter-help">
-                      Nutrition estimates are on each recipe. Daily macro targets are not applied yet.
-                    </p>
-                    <p className="filter-help">
-                      Your pantry tracks ingredients, not remaining quantities.
-                      Check what is left before you shop.
-                    </p>
-                  </aside>
-                </div>
-              </section>
-            )}
+                )}
+              </div>
+              <aside className="week-summary">
+                <h2>One trip. Everything you need.</h2>
+                <p className="field-note">
+                  Amounts are combined across your meals. What’s in your pantry
+                  is left out.
+                </p>
+                <button
+                  className="text-button"
+                  disabled={!!run}
+                  onClick={() => setSetupStep("pantry")}
+                >
+                  Edit pantry
+                </button>
+                {!!shopping.length && (
+                  <details
+                    className="disclosure product-panel"
+                    open={showProducts}
+                    onToggle={(event) => {
+                      setShowProducts(event.currentTarget.open);
+                      setCopied(false);
+                    }}
+                  >
+                    <summary>Products & prices</summary>
+                    {productStock && productData ? (
+                      <>
+                        <label className="field-group">
+                          <span className="field-label">
+                            Choose products by
+                          </span>
+                          <select
+                            aria-label="Choose products by"
+                            value={pickRule}
+                            onChange={(event) => {
+                              setPickRule(event.target.value as PickRule);
+                              setCopied(false);
+                            }}
+                          >
+                            {pickRules.map((rule) => (
+                              <option key={rule} value={rule}>
+                                {pickRuleLabels[rule]}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        {unmatchedCount > 0 && (
+                          <button
+                            className="button secondary"
+                            onClick={findProducts}
+                            disabled={!chatGPTAccount}
+                            aria-disabled={matching !== null}
+                          >
+                            {finding || `Find ${storeName} products`}
+                          </button>
+                        )}
+                        <p
+                          className="product-total"
+                          role="status"
+                          tabIndex={-1}
+                          ref={productNote}
+                        >
+                          {finding
+                            ? finding
+                            : pricedLines.length
+                              ? `About ${euro.format(productTotal)}`
+                              : "No prices matched yet"}
+                        </p>
+                        {pricedLines.length > 0 && (
+                          <p className="field-note">
+                            For {pricedLines.length} of{" "}
+                            {plural(productNames.length, "ingredient")}.
+                            {unpricedCount > 0 &&
+                              ` ${plural(unpricedCount, "product")} sold by weight not included.`}
+                          </p>
+                        )}
+                        <p className="field-note">
+                          Price snapshot:{" "}
+                          {new Date(
+                            productData.downloadedAt,
+                          ).toLocaleDateString("en-AT")}
+                          . Prices may differ; stock isn’t checked.
+                          {staleProducts &&
+                            ` ${storeName} prices last changed ${new Date(productStock.latestChange).toLocaleDateString("en-AT")}.`}
+                        </p>
+                        {!chatGPTAccount && (
+                          <p className="field-note">
+                            Connect ChatGPT to find new matches.
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="field-note">
+                        No product prices available for {storeName}.
+                      </p>
+                    )}
+                    {matchError?.store === store && (
+                      <p className="notice error" role="alert">
+                        {matchError.message}
+                      </p>
+                    )}
+                  </details>
+                )}
+              </aside>
+            </div>
           </>
         )}
       </main>
-      <footer className="app-footer">
-        <span>
-          batchday <span>·</span> More joy in the everyday.
-        </span>
-      </footer>
     </div>
   );
 }

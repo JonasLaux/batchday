@@ -24,6 +24,12 @@ test('preserves genuine zero macros, zero grams and explicit grams for unknown s
   for (const unit of ['g', 'ml', 'Stück', 'EL']) assert.deepEqual(calculateNutrition([ingredient({ unit, nutrition: { foodId: 'food', grams: 0 } })], 2, [food]), { nutrition: null, missing: ['Food'] })
 })
 
+test('herbs and spices without a database match count as zero; other unmatched ingredients still block the total', () => {
+  const paprika = ingredient({ name: 'Paprikapulver', amount: 2, unit: 'TL', category: 'Gewürze', nutrition: undefined })
+  assert.deepEqual(calculateNutrition([ingredient(), paprika], 2, [food]), { nutrition: { kcal: 250, protein: 25, carbs: 12.5, fat: 6.25 }, missing: [] })
+  assert.deepEqual(calculateNutrition([ingredient(), { ...paprika, category: 'Vorrat' }], 2, [food]), { nutrition: null, missing: ['Paprikapulver'] })
+})
+
 test('missing food mappings or grams return an incomplete result instead of a partial total', () => {
   for (const nutrition of [undefined, { foodId: 'unknown', grams: 100 }, { foodId: '', grams: 100 }, { foodId: 'food', grams: NaN }, { foodId: 'food', grams: Infinity }, { foodId: 'food', grams: -1 }, { foodId: 'food' } as Ingredient['nutrition']]) {
     assert.deepEqual(calculateNutrition([ingredient(), ingredient({ name: 'Missing', nutrition })], 2, [food]), { nutrition: null, missing: ['Missing'] })

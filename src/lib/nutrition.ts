@@ -22,6 +22,8 @@ export function calculateNutrition(ingredients: readonly Ingredient[], servings:
   for (const ingredient of ingredients) {
     const mapping = ingredient.nutrition
     const food = mapping && typeof mapping.foodId === 'string' && mapping.foodId.trim() ? byId.get(mapping.foodId) : undefined
+    // Herbs and spices go by the pinch or bunch; one the database lacks counts as zero instead of blocking the total.
+    if (!food && ingredient.category === 'Gewürze') continue
     if (!food || !mapping || !nonnegative(mapping.grams) || (ingredient.amount !== null && ingredient.amount > 0 && mapping.grams === 0) || !macros.every((macro) => nonnegative(food[macro]))) {
       missing.add(ingredient.name)
       continue

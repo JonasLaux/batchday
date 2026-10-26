@@ -36,6 +36,8 @@ export type Recipe = {
 
 export type PlanItem = { recipeId: string; portions: number; baseServings?: number; day?: Weekday; meal?: MealType }
 
+export type MenuDish = { meal: MealType; title: string; brief: string }
+
 export type Filters = {
   search: string
   diet: string
@@ -58,3 +60,9 @@ export type ShoppingItem = {
   unresolved: boolean
   note?: string
 }
+
+// One product from the local store snapshot; weighted products are priced per `quantity` (1000 g).
+export type StoreProduct = { id: string; name: string; price: number; quantity: number; unit: 'g' | 'ml' | 'stk'; bio: boolean; weighted: boolean; url?: string }
+export type PickRule = 'cheapest' | 'store-brand' | 'bio'
+// packs null: sold by weight; cost null: a weighed product for an amount it cannot weigh (pieces, spoons, to taste).
+export type ProductLine = { product: StoreProduct; packs: number | null; cost: number | null; check: boolean }
